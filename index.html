@@ -21,22 +21,25 @@
     </head>
     <body tabindex="0">
 
+        <div id="robot-name"></div>
+        <div id="robot-specs"></div>
+
         <div id="menu">
             <ul id="urdf-options">
                 <!-- Robot arms loaded dynamically from manifest.json -->
             </ul>
 
-            <div id="controls" class="hidden">
+            <div id="controls" class="hidden hide-fixed">
                 <div id="toggle-controls"></div>
                 <div>Drag and drop URDF files or folders! <br/> (Chrome Only)</div>
                 <div id="ignore-joint-limits" class="toggle">Ignore Joint Limits</div>
-                <div id="hide-fixed" class="toggle">Hide Fixed Joints</div>
                 <div id="radians-toggle" class="toggle">Use Radians</div>
                 <div id="autocenter-toggle" class="toggle">Autocenter</div>
                 <div id="collision-toggle" class="toggle">Show Collision</div>
                 <div id="do-animate" class="toggle">Animate Joints</div>
                 <div id="ik-mode" class="toggle checked">IK Mode</div>
                 <div id="show-axes" class="toggle">Show Axes</div>
+                <div id="show-banana" class="toggle">Banana for Scale</div>
                 <button id="export-obj" style="margin-top: 10px; padding: 8px 16px; cursor: pointer;">Export DAE</button>
                 <label>
                     Up Axis

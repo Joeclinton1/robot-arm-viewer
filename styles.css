@@ -293,3 +293,39 @@ input:focus {
         display: none;
     }
 }
+
+/* Robot info display */
+#robot-name {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    font-size: 48px;
+    font-weight: 100;
+    color: white;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+    pointer-events: none;
+    text-align: center;
+}
+
+#robot-specs {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 100;
+    text-align: right;
+    font-size: 14px;
+    font-weight: 300;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    line-height: 1.8;
+    pointer-events: none;
+    background: rgba(0,0,0,0.3);
+    padding: 10px 15px;
+    border-radius: 4px;
+}
+
+#robot-specs div {
+    margin: 2px 0;
+}

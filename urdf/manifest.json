@@ -2,21 +2,45 @@
     {
         "name": "AgileX Piper",
         "path": "./urdf/AgileX Piper/urdf/piper_description_v100_camera.urdf",
-        "color": "#263238"
+        "color": "#263238",
+        "specs": {
+            "price": "$2,499",
+            "payload": "1.5 kg",
+            "reach": "63 cm",
+            "repeatability": "0.1 mm"
+        }
     },
     {
         "name": "I2RT YAM",
         "path": "./urdf/I2RT YAM/urdf/yam.urdf",
-        "color": "#263238"
+        "color": "#263238",
+        "specs": {
+            "price": "$2,999",
+            "payload": "2 kg",
+            "reach": "75 cm",
+            "repeatability": "1 mm"
+        }
     },
     {
         "name": "SO-ARM101",
         "path": "./urdf/SO-ARM101/so101_old_calib.urdf",
-        "color": "#263238"
+        "color": "#263238",
+        "specs": {
+            "price": "$120",
+            "payload": "0.4 kg",
+            "reach": "45 cm",
+            "repeatability": "10 mm"
+        }
     },
     {
         "name": "Trossen WidowX AI",
         "path": "./urdf/Trossen WidowX AI/wxai_follower.urdf",
-        "color": "#263238"
+        "color": "#263238",
+        "specs": {
+            "price": "$4,546",
+            "payload": "1.5 kg",
+            "reach": "70 cm",
+            "repeatability": "1 mm"
+        }
     }
 ]

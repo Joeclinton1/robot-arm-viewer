@@ -25,16 +25,19 @@ const sliderList = document.querySelector('#controls ul');
 const controlsel = document.getElementById('controls');
 const controlsToggle = document.getElementById('toggle-controls');
 const animToggle = document.getElementById('do-animate');
-const hideFixedToggle = document.getElementById('hide-fixed');
 const ikModeToggle = document.getElementById('ik-mode');
 const exportObjButton = document.getElementById('export-obj');
 const showAxesToggle = document.getElementById('show-axes');
+const showBananaToggle = document.getElementById('show-banana');
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 1 / DEG2RAD;
 let sliders = {};
 
 // Create axis helper
 let axesHelper = null;
+
+// Banana for scale
+let banana = null;
 
 // Global Functions
 const setColor = color => {
@@ -68,15 +71,6 @@ autocenterToggle.addEventListener('click', () => {
     viewer.noAutoRecenter = !autocenterToggle.classList.contains('checked');
 });
 
-hideFixedToggle.addEventListener('click', () => {
-    hideFixedToggle.classList.toggle('checked');
-
-    const hideFixed = hideFixedToggle.classList.contains('checked');
-    if (hideFixed) controlsel.classList.add('hide-fixed');
-    else controlsel.classList.remove('hide-fixed');
-
-});
-
 ikModeToggle.addEventListener('click', () => {
     ikModeToggle.classList.toggle('checked');
     const isIKMode = ikModeToggle.classList.contains('checked');
@@ -100,6 +94,39 @@ showAxesToggle.addEventListener('click', () => {
     } else if (!showAxes && axesHelper) {
         viewer.scene.remove(axesHelper);
         axesHelper = null;
+        viewer.redraw();
+    }
+});
+
+showBananaToggle.addEventListener('click', () => {
+    showBananaToggle.classList.toggle('checked');
+    const showBanana = showBananaToggle.classList.contains('checked');
+
+    if (showBanana) {
+        if (!banana) {
+            // Load banana GLB file
+            const loader = new GLTFLoader();
+            loader.load('./urdf/Banana.glb', (gltf) => {
+                banana = gltf.scene;
+
+                // Scale to average banana size (18cm = 0.18m)
+                // Original model: X=3.25257m, Y=2.58608m
+                // Diagonal = sqrt(3.25257^2 + 2.58608^2) ≈ 4.155m
+                // Scale = 0.18 / 4.155 ≈ 0.0433
+                banana.scale.set(0.0433, 0.0433, 0.0433);
+
+                // Position banana next to robot base
+                banana.position.set(0.3, 0, 0);
+
+                viewer.scene.add(banana);
+                viewer.redraw();
+            });
+        } else {
+            viewer.scene.add(banana);
+            viewer.redraw();
+        }
+    } else if (banana) {
+        viewer.scene.remove(banana);
         viewer.redraw();
     }
 });
@@ -457,11 +484,37 @@ const updateLoop = () => {
 
 };
 
+// Store robot manifest data
+let robotManifestData = [];
+
+// Update robot info display
+const updateRobotInfo = (robotName) => {
+    const robot = robotManifestData.find(r => r.name === robotName);
+    if (!robot) return;
+
+    // Update robot name
+    document.getElementById('robot-name').textContent = robot.name;
+
+    // Update specs
+    const specsContainer = document.getElementById('robot-specs');
+    if (robot.specs) {
+        specsContainer.innerHTML = `
+            <div><strong>Price:</strong> ${robot.specs.price}</div>
+            <div><strong>Payload:</strong> ${robot.specs.payload}</div>
+            <div><strong>Reach:</strong> ${robot.specs.reach}</div>
+            <div><strong>Repeatability:</strong> ${robot.specs.repeatability}</div>
+        `;
+    } else {
+        specsContainer.innerHTML = '';
+    }
+};
+
 // Load robot arms from manifest
 const loadRobotManifest = async () => {
     try {
         const response = await fetch('./urdf/manifest.json');
         const robots = await response.json();
+        robotManifestData = robots;
 
         const urdfOptionsContainer = document.querySelector('#urdf-options');
 
@@ -469,6 +522,7 @@ const loadRobotManifest = async () => {
             const li = document.createElement('li');
             li.setAttribute('urdf', robot.path);
             li.setAttribute('color', robot.color);
+            li.setAttribute('data-robot-name', robot.name);
             li.textContent = robot.name;
             urdfOptionsContainer.appendChild(li);
         });
@@ -495,12 +549,16 @@ const updateList = () => {
 
             const urdf = e.target.getAttribute('urdf');
             const color = e.target.getAttribute('color');
+            const robotName = e.target.getAttribute('data-robot-name');
 
             viewer.up = '+Z';
             document.getElementById('up-select').value = viewer.up;
             viewer.urdf = urdf;
             animToggle.classList.add('checked');
             setColor(color);
+
+            // Update robot info display
+            updateRobotInfo(robotName);
 
         });
 
