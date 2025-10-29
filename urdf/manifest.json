@@ -1,0 +1,22 @@
+[
+    {
+        "name": "AgileX Piper",
+        "path": "./urdf/AgileX Piper/urdf/piper_description_v100_camera.urdf",
+        "color": "#263238"
+    },
+    {
+        "name": "I2RT YAM",
+        "path": "./urdf/I2RT YAM/urdf/yam.urdf",
+        "color": "#263238"
+    },
+    {
+        "name": "SO-ARM101",
+        "path": "./urdf/SO-ARM101/so101_old_calib.urdf",
+        "color": "#263238"
+    },
+    {
+        "name": "Trossen WidowX AI",
+        "path": "./urdf/Trossen WidowX AI/wxai_follower.urdf",
+        "color": "#263238"
+    }
+]
