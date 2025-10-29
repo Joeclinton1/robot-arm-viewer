@@ -75,10 +75,8 @@ hideFixedToggle.addEventListener('click', () => {
 ikModeToggle.addEventListener('click', () => {
     ikModeToggle.classList.toggle('checked');
     const isIKMode = ikModeToggle.classList.contains('checked');
-    console.log('Setting IK mode to:', isIKMode);
     viewer.ikMode = isIKMode;
-    console.log('Viewer ikMode is now:', viewer.ikMode);
-    
+
     // Disable animation when in IK mode
     if (isIKMode) {
         animToggle.classList.remove('checked');

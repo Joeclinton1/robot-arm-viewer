@@ -336,8 +336,6 @@ export class URDFIKControls {
 
         // Find all movable joints
         this.movableJoints = findAllMovableJoints(this.robot);
-
-        console.log(`Found ${this.movableJoints.length} movable joints for IK`);
     }
 
     // Create IK solver for a specific joint dynamically
@@ -464,7 +462,7 @@ export class URDFIKControls {
 
             // Show which joint we're hovering over
             if (hoveredJoint) {
-                console.log('Hovering over joint:', hoveredJoint.name);
+                // Hovering logic handled by event dispatching
             }
         }
     }
@@ -586,7 +584,6 @@ export class URDFIKControls {
     
     setEnabled(enabled) {
         this.enabled = enabled;
-        console.log('IK Controls enabled:', enabled);
 
         // Show/hide current target visual if it exists
         if (this.currentTargetVisual) {

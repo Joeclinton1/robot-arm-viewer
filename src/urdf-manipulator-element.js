@@ -185,22 +185,17 @@ class URDFManipulator extends URDFViewer {
     
     _updateControlMode() {
         const ikMode = this.ikMode;
-        console.log('_updateControlMode called, ikMode:', ikMode);
-        console.log('ikControls exists:', !!this.ikControls);
-        
+
         // Enable/disable appropriate controls
         this.dragControls.enabled = !ikMode;
-        
+
         if (this.ikControls) {
-            console.log('Calling ikControls.setEnabled with:', ikMode);
             this.ikControls.setEnabled(ikMode);
-            
+
             if (ikMode) {
                 // Update IK effector positions when switching to IK mode
                 this.ikControls.updateEffectorPositions();
             }
-        } else {
-            console.warn('ikControls not available in _updateControlMode');
         }
         
         this.redraw();
