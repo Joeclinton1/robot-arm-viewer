@@ -29,6 +29,7 @@ const ikModeToggle = document.getElementById('ik-mode');
 const exportObjButton = document.getElementById('export-obj');
 const showAxesToggle = document.getElementById('show-axes');
 const showBananaToggle = document.getElementById('show-banana');
+const interactionInstruction = document.getElementById('interaction-instruction');
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 1 / DEG2RAD;
 let sliders = {};
@@ -38,6 +39,13 @@ let axesHelper = null;
 
 // Banana for scale
 let banana = null;
+
+const updateInteractionInstruction = () => {
+    if (!interactionInstruction) return;
+    interactionInstruction.textContent = viewer.ikMode
+        ? 'Drag robot arm to pose with IK'
+        : 'Drag robot arm joint to change angle';
+};
 
 // Global Functions
 const setColor = color => {
@@ -75,6 +83,7 @@ ikModeToggle.addEventListener('click', () => {
     ikModeToggle.classList.toggle('checked');
     const isIKMode = ikModeToggle.classList.contains('checked');
     viewer.ikMode = isIKMode;
+    updateInteractionInstruction();
 
     // Disable animation when in IK mode
     if (isIKMode) {
@@ -581,6 +590,7 @@ document.addEventListener('WebComponentsReady', () => {
             if (!viewer.ikMode) {
                 ikModeToggle.classList.add('checked');
                 viewer.ikMode = true;
+                updateInteractionInstruction();
             }
 
             // Initialize IK animation - pick joint5 as effector
@@ -638,6 +648,7 @@ document.addEventListener('WebComponentsReady', () => {
             if (!viewer.ikMode) {
                 ikModeToggle.classList.add('checked');
                 viewer.ikMode = true;
+                updateInteractionInstruction();
             }
 
             // Wait a bit for IK controls to be ready
@@ -679,3 +690,5 @@ document.addEventListener('WebComponentsReady', () => {
     viewer.camera.position.set(-0.4, 0.4, 0.4);
 
 });
+
+updateInteractionInstruction();

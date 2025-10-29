@@ -309,6 +309,20 @@ input:focus {
     text-align: center;
 }
 
+#interaction-instruction {
+    position: fixed;
+    top: 85px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    font-size: 20px;
+    font-weight: 100;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+    pointer-events: none;
+    opacity: 0.8;
+}
+
 #robot-specs {
     position: fixed;
     top: 20px;
