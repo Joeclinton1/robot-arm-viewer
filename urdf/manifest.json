@@ -4,7 +4,7 @@
         "path": "./urdf/AgileX Piper/urdf/piper_description_v100_camera.urdf",
         "color": "#263238",
         "specs": {
-            "price": "$2,499",
+            "price": "$3,999",
             "payload": "1.5 kg",
             "reach": "63 cm",
             "repeatability": "0.1 mm",
