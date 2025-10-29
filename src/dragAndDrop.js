@@ -129,7 +129,9 @@ export function registerDragEvents(viewer, callback) {
 
                     // find the matching file given the requested url
                     const cleaned = cleanFilePath(url.replace(viewer.package, ''));
-                    const fileName = fileNames
+
+                    // First try: exact suffix match
+                    let fileName = fileNames
                         .filter(name => {
 
                             // check if the end of file and url are the same
@@ -137,6 +139,22 @@ export function registerDragEvents(viewer, callback) {
                             return cleaned.substr(cleaned.length - len) === name.substr(name.length - len);
 
                         }).pop();
+
+                    // Second try: if URL has "meshes" in path, try replacing with "assets" and vice versa
+                    if (fileName === undefined) {
+                        let alternativePath = cleaned;
+                        if (cleaned.includes('/meshes/')) {
+                            alternativePath = cleaned.replace('/meshes/', '/assets/');
+                        } else if (cleaned.includes('/assets/')) {
+                            alternativePath = cleaned.replace('/assets/', '/meshes/');
+                        }
+
+                        fileName = fileNames
+                            .filter(name => {
+                                const len = Math.min(name.length, alternativePath.length);
+                                return alternativePath.substr(alternativePath.length - len) === name.substr(name.length - len);
+                            }).pop();
+                    }
 
                     if (fileName !== undefined) {
 
@@ -174,10 +192,18 @@ export function registerDragEvents(viewer, callback) {
                     urdfOptionsContainer.appendChild(li);
                 });
 
-                viewer.urdf =
-                    filesNames
-                        .filter(n => /urdf$/i.test(n))
-                        .shift();
+                const selectedUrdf = filesNames
+                    .filter(n => /urdf$/i.test(n))
+                    .shift();
+
+                viewer.urdf = selectedUrdf;
+
+                // Set package to the directory containing the URDF
+                // This assumes URDF is at the same level as meshes/assets folders
+                if (selectedUrdf) {
+                    const urdfDir = selectedUrdf.substring(0, selectedUrdf.lastIndexOf('/'));
+                    viewer.package = urdfDir || '/';
+                }
 
             }).then(() => callback());
 

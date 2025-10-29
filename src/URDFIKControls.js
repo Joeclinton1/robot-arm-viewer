@@ -338,6 +338,18 @@ export class URDFIKControls {
         this.movableJoints = findAllMovableJoints(this.robot);
     }
 
+    // Update the robot reference when switching robots
+    updateRobot(robot) {
+        this.robot = robot;
+        // Clean up any existing solver from old robot
+        this.cleanupCurrentSolver();
+        this.selectedEffector = null;
+        this.selectedEffectorOriginalAngle = null;
+        this.shouldLockSelectedJoint = false;
+        // Rebuild movable joints list for new robot
+        this.setupIK();
+    }
+
     // Create IK solver for a specific joint dynamically
     createSolverForJoint(joint) {
         // Clean up any existing solver

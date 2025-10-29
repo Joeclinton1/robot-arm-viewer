@@ -180,6 +180,9 @@ class URDFManipulator extends URDFViewer {
         if (this.robot && !this.ikControls) {
             this.ikControls = new URDFIKControls(this.robot, this.scene, this.camera, this.renderer.domElement, this);
             this._updateControlMode();
+        } else if (this.robot && this.ikControls) {
+            // Robot changed - update the IKControls with the new robot
+            this.ikControls.updateRobot(this.robot);
         }
     }
     

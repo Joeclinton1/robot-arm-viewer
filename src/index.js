@@ -28,9 +28,13 @@ const animToggle = document.getElementById('do-animate');
 const hideFixedToggle = document.getElementById('hide-fixed');
 const ikModeToggle = document.getElementById('ik-mode');
 const exportObjButton = document.getElementById('export-obj');
+const showAxesToggle = document.getElementById('show-axes');
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 1 / DEG2RAD;
 let sliders = {};
+
+// Create axis helper
+let axesHelper = null;
 
 // Global Functions
 const setColor = color => {
@@ -81,6 +85,22 @@ ikModeToggle.addEventListener('click', () => {
     // Disable animation when in IK mode
     if (isIKMode) {
         animToggle.classList.remove('checked');
+    }
+});
+
+showAxesToggle.addEventListener('click', () => {
+    showAxesToggle.classList.toggle('checked');
+    const showAxes = showAxesToggle.classList.contains('checked');
+
+    if (showAxes && !axesHelper) {
+        // Create axes helper: Red = X, Green = Y, Blue = Z
+        axesHelper = new THREE.AxesHelper(0.5);
+        viewer.scene.add(axesHelper);
+        viewer.redraw();
+    } else if (!showAxes && axesHelper) {
+        viewer.scene.remove(axesHelper);
+        axesHelper = null;
+        viewer.redraw();
     }
 });
 
@@ -320,7 +340,7 @@ document.addEventListener('WebComponentsReady', () => {
 
     };
 
-    document.querySelector('li[urdf]').dispatchEvent(new Event('click'));
+    // Robot will be loaded automatically by loadRobotManifest()
 
     if (/javascript\/example\/bundle/i.test(window.location)) {
         viewer.package = '../../../urdf';
@@ -334,34 +354,97 @@ document.addEventListener('WebComponentsReady', () => {
 
 });
 
+// Animation state for IK targeting
+let currentTarget = new THREE.Vector3();
+let nextTarget = new THREE.Vector3();
+let transitionProgress = 1; // 0 to 1
+let transitionDuration = 2000; // milliseconds
+let lastTransitionTime = 0;
+
+// Generate random point in cube workspace in front of robot
+const generateRandomTarget = () => {
+    // Actual coordinate system: X = forward/back, Y = up/down, Z = left/right
+    // Define a cube workspace in front of the robot
+
+    // X range: forward in front of robot
+    const minX = 0.1;
+    const maxX = 0.45;
+
+    // Y range: up/down (vertical)
+    const minY = 0.1;
+    const maxY = 0.45;
+
+    // Z range: left/right (side to side)
+    const minZ = -0.25;
+    const maxZ = 0.25;
+
+    // Generate random point in cube
+    return new THREE.Vector3(
+        minX + Math.random() * (maxX - minX),
+        minY + Math.random() * (maxY - minY),
+        minZ + Math.random() * (maxZ - minZ)
+    );
+};
+
 // init 2D UI and animation
 const updateAngles = () => {
-
-    if (!viewer.setJointValue) return;
-
-    // reset everything to 0 first
-    const resetJointValues = viewer.angles;
-    for (const name in resetJointValues) resetJointValues[name] = 0;
-    viewer.setJointValues(resetJointValues);
-
-    // animate the legs
-    const time = Date.now() / 3e2;
-    for (let i = 1; i <= 6; i++) {
-
-        const offset = i * Math.PI / 3;
-        const ratio = Math.max(0, Math.sin(time + offset));
-
-        viewer.setJointValue(`HP${ i }`, THREE.MathUtils.lerp(30, 0, ratio) * DEG2RAD);
-        viewer.setJointValue(`KP${ i }`, THREE.MathUtils.lerp(90, 150, ratio) * DEG2RAD);
-        viewer.setJointValue(`AP${ i }`, THREE.MathUtils.lerp(-30, -60, ratio) * DEG2RAD);
-
-        viewer.setJointValue(`TC${ i }A`, THREE.MathUtils.lerp(0, 0.065, ratio));
-        viewer.setJointValue(`TC${ i }B`, THREE.MathUtils.lerp(0, 0.065, ratio));
-
-        viewer.setJointValue(`W${ i }`, window.performance.now() * 0.001);
-
+    if (!viewer.robot || !viewer.ikControls) {
+        return;
     }
 
+    // Don't run animation if user is manually dragging IK
+    if (viewer.ikControls.isDragging) {
+        return;
+    }
+
+    const now = performance.now();
+
+    // Check if we need a new target
+    if (transitionProgress >= 1) {
+        // Start new transition
+        currentTarget.copy(nextTarget);
+        nextTarget = generateRandomTarget();
+        transitionProgress = 0;
+        lastTransitionTime = now;
+    }
+
+    // Update transition progress
+    const elapsed = now - lastTransitionTime;
+    transitionProgress = Math.min(1, elapsed / transitionDuration);
+
+    // Smooth interpolation (ease in-out)
+    const t = transitionProgress < 0.5
+        ? 2 * transitionProgress * transitionProgress
+        : 1 - Math.pow(-2 * transitionProgress + 2, 2) / 2;
+
+    // Interpolate between current and next target
+    const targetPos = new THREE.Vector3().lerpVectors(currentTarget, nextTarget, t);
+
+    // Apply IK if solver is active
+    if (viewer.ikControls && viewer.ikControls.currentSolver && viewer.ikControls.currentTarget) {
+        // Hide target visual during animation
+        if (viewer.ikControls.currentTargetVisual) {
+            viewer.ikControls.currentTargetVisual.visible = false;
+        }
+
+        // Update target position
+        viewer.ikControls.currentTarget.position.copy(targetPos);
+
+        // Solve IK
+        viewer.ikControls.currentSolver.solve();
+
+        // Lock end effector orientation if needed
+        if (viewer.ikControls.shouldLockSelectedJoint &&
+            viewer.ikControls.selectedEffectorOriginalAngle !== null &&
+            viewer.ikControls.selectedEffector) {
+            viewer.ikControls.selectedEffector.setJointValue(
+                viewer.ikControls.selectedEffectorOriginalAngle
+            );
+        }
+
+        // Force visual update
+        viewer.redraw();
+    }
 };
 
 const updateLoop = () => {
@@ -372,6 +455,36 @@ const updateLoop = () => {
 
     requestAnimationFrame(updateLoop);
 
+};
+
+// Load robot arms from manifest
+const loadRobotManifest = async () => {
+    try {
+        const response = await fetch('./urdf/manifest.json');
+        const robots = await response.json();
+
+        const urdfOptionsContainer = document.querySelector('#urdf-options');
+
+        robots.forEach(robot => {
+            const li = document.createElement('li');
+            li.setAttribute('urdf', robot.path);
+            li.setAttribute('color', robot.color);
+            li.textContent = robot.name;
+            urdfOptionsContainer.appendChild(li);
+        });
+
+        updateList();
+
+        // Load first robot by default
+        if (robots.length > 0) {
+            const firstRobot = urdfOptionsContainer.querySelector('li[urdf]');
+            if (firstRobot) {
+                firstRobot.dispatchEvent(new Event('click'));
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load robot manifest:', error);
+    }
 };
 
 const updateList = () => {
@@ -395,15 +508,114 @@ const updateList = () => {
 
 };
 
-updateList();
+// Load robots from manifest on startup
+loadRobotManifest();
 
 document.addEventListener('WebComponentsReady', () => {
 
-    animToggle.addEventListener('click', () => animToggle.classList.toggle('checked'));
+    animToggle.addEventListener('click', () => {
+        const willBeChecked = !animToggle.classList.contains('checked');
+        animToggle.classList.toggle('checked');
+
+        if (willBeChecked && viewer.robot && viewer.ikControls) {
+            // Enable IK mode if not already enabled
+            if (!viewer.ikMode) {
+                ikModeToggle.classList.add('checked');
+                viewer.ikMode = true;
+            }
+
+            // Initialize IK animation - pick joint5 as effector
+            const joints = Object.keys(viewer.robot.joints)
+                .filter(name => {
+                    const j = viewer.robot.joints[name];
+                    return j.isURDFJoint && j.jointType !== 'fixed';
+                })
+                .sort()
+                .map(name => viewer.robot.joints[name]);
+
+            if (joints.length > 0) {
+                // Use second-to-last joint (joint5) instead of last (joint6)
+                const endEffector = joints.length >= 2 ? joints[joints.length - 2] : joints[joints.length - 1];
+
+                // Setup IK solver for end effector
+                viewer.ikControls.selectedEffector = endEffector;
+                const solver = viewer.ikControls.createSolverForJoint(endEffector);
+
+                // Initialize targets
+                if (viewer.ikControls.currentTarget) {
+                    currentTarget = generateRandomTarget();
+                    nextTarget = generateRandomTarget();
+                    viewer.ikControls.currentTarget.position.copy(currentTarget);
+                    transitionProgress = 1;
+                }
+
+                // Hide target visual during animation
+                if (viewer.ikControls.currentTargetVisual) {
+                    viewer.ikControls.currentTargetVisual.visible = false;
+                }
+            }
+        } else if (!willBeChecked) {
+            // Clean up animation's IK solver when turning off animation
+            if (viewer.ikControls) {
+                viewer.ikControls.cleanupCurrentSolver();
+                viewer.ikControls.selectedEffector = null;
+                viewer.ikControls.selectedEffectorOriginalAngle = null;
+                viewer.ikControls.shouldLockSelectedJoint = false;
+            }
+        }
+    });
 
     // stop the animation if user tried to manipulate the model
-    viewer.addEventListener('manipulate-start', e => animToggle.classList.remove('checked'));
-    viewer.addEventListener('urdf-processed', e => updateAngles());
+    viewer.addEventListener('manipulate-start', e => {
+        animToggle.classList.remove('checked');
+    });
+    viewer.addEventListener('urdf-processed', e => {
+        // Reset animation state when new robot loads
+        transitionProgress = 1;
+
+        // Start animation automatically since toggle starts checked
+        if (animToggle.classList.contains('checked') && viewer.robot && viewer.ikControls) {
+            // Enable IK mode
+            if (!viewer.ikMode) {
+                ikModeToggle.classList.add('checked');
+                viewer.ikMode = true;
+            }
+
+            // Wait a bit for IK controls to be ready
+            setTimeout(() => {
+                // Find end effector - use joint5 instead of joint6
+                const joints = Object.keys(viewer.robot.joints)
+                    .filter(name => {
+                        const j = viewer.robot.joints[name];
+                        return j.isURDFJoint && j.jointType !== 'fixed';
+                    })
+                    .sort()
+                    .map(name => viewer.robot.joints[name]);
+
+                if (joints.length > 0) {
+                    // Use second-to-last joint (joint5)
+                    const endEffector = joints.length >= 2 ? joints[joints.length - 2] : joints[joints.length - 1];
+
+                    // Simulate clicking on end effector
+                    viewer.ikControls.selectedEffector = endEffector;
+                    viewer.ikControls.createSolverForJoint(endEffector);
+
+                    // Initialize targets
+                    if (viewer.ikControls.currentTarget) {
+                        currentTarget = generateRandomTarget();
+                        nextTarget = generateRandomTarget();
+                        viewer.ikControls.currentTarget.position.copy(currentTarget);
+                        transitionProgress = 1;
+                    }
+
+                    // Hide target visual during animation
+                    if (viewer.ikControls.currentTargetVisual) {
+                        viewer.ikControls.currentTargetVisual.visible = false;
+                    }
+                }
+            }, 100);
+        }
+    });
     updateLoop();
     viewer.camera.position.set(-0.4, 0.4, 0.4);
 

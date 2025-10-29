@@ -23,7 +23,7 @@
 
         <div id="menu">
             <ul id="urdf-options">
-                <li urdf="./urdf/yam/urdf/yam.urdf">YAM Robot</li>
+                <!-- Robot arms loaded dynamically from manifest.json -->
             </ul>
 
             <div id="controls" class="hidden">
@@ -32,10 +32,11 @@
                 <div id="ignore-joint-limits" class="toggle">Ignore Joint Limits</div>
                 <div id="hide-fixed" class="toggle">Hide Fixed Joints</div>
                 <div id="radians-toggle" class="toggle">Use Radians</div>
-                <div id="autocenter-toggle" class="toggle checked">Autocenter</div>
+                <div id="autocenter-toggle" class="toggle">Autocenter</div>
                 <div id="collision-toggle" class="toggle">Show Collision</div>
                 <div id="do-animate" class="toggle">Animate Joints</div>
                 <div id="ik-mode" class="toggle checked">IK Mode</div>
+                <div id="show-axes" class="toggle">Show Axes</div>
                 <button id="export-obj" style="margin-top: 10px; padding: 8px 16px; cursor: pointer;">Export DAE</button>
                 <label>
                     Up Axis
