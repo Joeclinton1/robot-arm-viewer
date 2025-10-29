@@ -166,11 +166,36 @@ export class DAEExporter {
             output += `    <geometry id="${geomId}">\n`;
             output += `      <mesh>\n`;
 
-            // Clone and transform geometry
+            // Clone geometry and transform to be relative to parent joint
             const geo = geometry.clone();
+
             if (mesh) {
+                // Find the parent joint by traversing up the hierarchy
+                let parent = mesh.parent;
+                let jointTransform = null;
+
+                while (parent) {
+                    if (parent.isURDFJoint) {
+                        // Found the parent joint - get its world transform
+                        parent.updateMatrixWorld();
+                        jointTransform = parent.matrixWorld.clone();
+                        break;
+                    }
+                    parent = parent.parent;
+                }
+
                 mesh.updateMatrixWorld();
-                geo.applyMatrix4(mesh.matrixWorld);
+
+                if (jointTransform) {
+                    // Apply mesh world transform, then inverse of joint transform
+                    // This makes geometry relative to joint origin
+                    const relativeTransform = mesh.matrixWorld.clone();
+                    relativeTransform.premultiply(jointTransform.invert());
+                    geo.applyMatrix4(relativeTransform);
+                } else {
+                    // No parent joint found (base link) - bake world transform
+                    geo.applyMatrix4(mesh.matrixWorld);
+                }
             }
 
             // Compute normals if needed
@@ -277,13 +302,34 @@ export class DAEExporter {
             const nodeId = `node_${index}`;
             const geomId = `geometry_${mesh.geometry.uuid}`;
 
-            // Use identity matrix since transforms are baked into geometry
+            // Find parent joint and use its world transform as the node transform
+            let parent = mesh.parent;
+            let jointTransform = null;
+
+            while (parent) {
+                if (parent.isURDFJoint) {
+                    parent.updateMatrixWorld();
+                    jointTransform = parent.matrixWorld;
+                    break;
+                }
+                parent = parent.parent;
+            }
+
+            // Use joint transform if found, otherwise use identity (base link stays centered)
+            let m;
+            if (jointTransform) {
+                m = jointTransform.elements;
+            } else {
+                // Base link - use identity matrix (geometry stays at world origin)
+                m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+            }
+
             output += `      <node id="${nodeId}">\n`;
             output += '        <matrix>';
-            output += '1 0 0 0 ';
-            output += '0 1 0 0 ';
-            output += '0 0 1 0 ';
-            output += '0 0 0 1';
+            output += `${m[0]} ${m[4]} ${m[8]} ${m[12]} `;
+            output += `${m[1]} ${m[5]} ${m[9]} ${m[13]} `;
+            output += `${m[2]} ${m[6]} ${m[10]} ${m[14]} `;
+            output += `${m[3]} ${m[7]} ${m[11]} ${m[15]}`;
             output += '</matrix>\n';
             output += '        <instance_geometry url="#' + geomId + '">\n';
             output += '          <bind_material>\n';
