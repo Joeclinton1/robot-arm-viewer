@@ -4,7 +4,7 @@ This project builds on top of [gkjohnson/urdf-loaders](https://github.com/gkjohn
 
 ## Highlights
 
-- **Enhanced rendering pipeline** that sharpens materials, lighting, and shadows for a more realistic view of each robot.
+- **Improved Rendering** with environment maps, auto pbr materials, grid floor and bannana for scale.
 - **IK-driven click-and-drag controls** so you can grab the robot end-effector and move it around while the joints solve in real time.
 - **DAE export** for every loaded configuration, making it easy to pull a snapshot into other tools.
 - **Auto-animations** that showcase each arm's reachable workspace without any manual setup.
