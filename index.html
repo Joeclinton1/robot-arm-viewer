@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <meta charset="utf-8"/>
+
+        <title>URDF Viewer Example</title>
+
+        <script src="https://unpkg.com/@webcomponents/webcomponentsjs@2.4.3/webcomponents-bundle.js"></script>
+        <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+                "three/": "https://unpkg.com/three@0.158.0/"
+            }
+        }
+        </script>
+        <link href="https://fonts.googleapis.com/css?family=Roboto:100,300" rel="stylesheet"/>
+        <link href="./styles.css" type="text/css" rel="stylesheet" />
+    </head>
+    <body tabindex="0">
+
+        <div id="menu">
+            <ul id="urdf-options">
+                <li urdf="./urdf/yam/urdf/yam.urdf">YAM Robot</li>
+            </ul>
+
+            <div id="controls" class="hidden">
+                <div id="toggle-controls"></div>
+                <div>Drag and drop URDF files or folders! <br/> (Chrome Only)</div>
+                <div id="ignore-joint-limits" class="toggle">Ignore Joint Limits</div>
+                <div id="hide-fixed" class="toggle">Hide Fixed Joints</div>
+                <div id="radians-toggle" class="toggle">Use Radians</div>
+                <div id="autocenter-toggle" class="toggle checked">Autocenter</div>
+                <div id="collision-toggle" class="toggle">Show Collision</div>
+                <div id="do-animate" class="toggle">Animate Joints</div>
+                <div id="ik-mode" class="toggle checked">IK Mode</div>
+                <button id="export-obj" style="margin-top: 10px; padding: 8px 16px; cursor: pointer;">Export OBJ</button>
+                <label>
+                    Up Axis
+                    <select id="up-select">
+                        <option value="+X">+X</option>
+                        <option value="-X">-X</option>
+                        <option value="+Y">+Y</option>
+                        <option value="-Y">-Y</option>
+                        <option value="+Z" selected>+Z</option>
+                        <option value="-Z">-Z</option>
+                    </select>
+                </label>
+                <ul></ul>
+            </div>
+        </div>
+        <urdf-viewer up="+Z" display-shadow ik-mode tabindex="0"></urdf-viewer>
+
+        <script type="module" src="./src/index.js"></script>
+    </body>
+</html>
