@@ -5,16 +5,25 @@ import * as THREE from 'three';
 export class OBJExporter {
     constructor() {
         this.output = '';
+        this.mtlOutput = '';
         this.vertexOffset = 1;
         this.normalOffset = 1;
         this.uvOffset = 1;
+        this.materials = new Map();
+        this.materialIndex = 0;
     }
 
-    parse(object) {
+    parse(object, filename = 'robot') {
         this.output = '';
+        this.mtlOutput = '';
         this.vertexOffset = 1;
         this.normalOffset = 1;
         this.uvOffset = 1;
+        this.materials.clear();
+        this.materialIndex = 0;
+
+        // Extract base name without extension
+        const baseName = filename.replace('.obj', '');
 
         // OBJ file header
         this.output += '# OBJ file exported from URDF Viewer\n';
@@ -22,26 +31,36 @@ export class OBJExporter {
         this.output += '\n';
 
         // Parse the object
-        this.parseObject(object);
+        this.parseObject(object, baseName);
 
-        return this.output;
+        // Generate MTL file
+        this.generateMTL();
+
+        return { obj: this.output, mtl: this.mtlOutput };
     }
 
     parseObject(object, objectName = 'URDFRobot') {
         const vertices = [];
         const normals = [];
         const uvs = [];
-        const faces = [];
+        const meshGroups = [];
 
         // Traverse all meshes in the object
         object.traverse(child => {
             if (child.isMesh && child.geometry) {
+                const faces = [];
                 this.parseMesh(child, vertices, normals, uvs, faces);
+                if (faces.length > 0) {
+                    const materialName = this.getMaterialName(child.material);
+                    meshGroups.push({ faces, materialName });
+                }
             }
         });
 
         // Write header for this object
         if (vertices.length > 0) {
+            // Reference MTL file
+            this.output += `mtllib ${objectName}.mtl\n`;
             this.output += `o ${objectName}\n`;
 
             // Write all vertices
@@ -63,12 +82,76 @@ export class OBJExporter {
                 });
             }
 
-            // Write all faces
-            faces.forEach(face => {
-                this.output += face + '\n';
+            // Write all faces grouped by material
+            meshGroups.forEach(group => {
+                this.output += `usemtl ${group.materialName}\n`;
+                group.faces.forEach(face => {
+                    this.output += face + '\n';
+                });
             });
 
             this.output += '\n';
+        }
+    }
+
+    getMaterialName(material) {
+        if (!material) return 'default_material';
+
+        // Check if we've already registered this material
+        for (const [name, mat] of this.materials.entries()) {
+            if (mat === material) return name;
+        }
+
+        // Create a new material name
+        const name = `material_${this.materialIndex++}`;
+        this.materials.set(name, material);
+        return name;
+    }
+
+    generateMTL() {
+        this.mtlOutput = '# MTL file exported from URDF Viewer\n';
+        this.mtlOutput += `# Date: ${new Date().toISOString()}\n\n`;
+
+        for (const [name, material] of this.materials.entries()) {
+            this.mtlOutput += `newmtl ${name}\n`;
+
+            // Get material color
+            const color = material.color || new THREE.Color(0.8, 0.8, 0.8);
+            this.mtlOutput += `Kd ${color.r.toFixed(4)} ${color.g.toFixed(4)} ${color.b.toFixed(4)}\n`;
+
+            // Ambient color (usually same as diffuse or slightly darker)
+            this.mtlOutput += `Ka ${(color.r * 0.5).toFixed(4)} ${(color.g * 0.5).toFixed(4)} ${(color.b * 0.5).toFixed(4)}\n`;
+
+            // For PBR materials (MeshStandardMaterial)
+            if (material.type === 'MeshStandardMaterial') {
+                const metalness = material.metalness !== undefined ? material.metalness : 0.0;
+                const roughness = material.roughness !== undefined ? material.roughness : 0.5;
+
+                // Convert roughness to specular exponent (approximate)
+                const specularExponent = (1.0 - roughness) * 200 + 10;
+                this.mtlOutput += `Ns ${specularExponent.toFixed(2)}\n`;
+
+                // Specular color (small white for non-metallic, material color for metallic)
+                // Non-metals have ~4% reflection (0.04), metals reflect their color
+                const baseSpec = 0.04;
+                const specR = color.r * metalness + baseSpec * (1.0 - metalness);
+                const specG = color.g * metalness + baseSpec * (1.0 - metalness);
+                const specB = color.b * metalness + baseSpec * (1.0 - metalness);
+                this.mtlOutput += `Ks ${specR.toFixed(4)} ${specG.toFixed(4)} ${specB.toFixed(4)}\n`;
+            } else {
+                // Default specular properties
+                this.mtlOutput += `Ns 50.0\n`;
+                this.mtlOutput += `Ks 0.04 0.04 0.04\n`;
+            }
+
+            // Transparency
+            const opacity = material.opacity !== undefined ? material.opacity : 1.0;
+            this.mtlOutput += `d ${opacity.toFixed(4)}\n`;
+
+            // Illumination model (2 = highlight on)
+            this.mtlOutput += `illum 2\n`;
+
+            this.mtlOutput += '\n';
         }
     }
 
@@ -210,14 +293,35 @@ export class OBJExporter {
         geo.dispose();
     }
 
-    // Helper function to download the OBJ file
-    static download(content, filename = 'robot.obj') {
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        link.click();
-        URL.revokeObjectURL(url);
+    // Helper function to download the OBJ and MTL files as a zip
+    static async download(content, filename = 'robot.obj') {
+        // If content is an object with obj and mtl properties
+        if (content.obj && content.mtl) {
+            // Create a zip file with both OBJ and MTL
+            const zip = new window.JSZip();
+            const mtlFilename = filename.replace('.obj', '.mtl');
+            const zipFilename = filename.replace('.obj', '.zip');
+
+            zip.file(filename, content.obj);
+            zip.file(mtlFilename, content.mtl);
+
+            // Generate and download the zip
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = zipFilename;
+            link.click();
+            URL.revokeObjectURL(url);
+        } else {
+            // Legacy: just download OBJ
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
     }
 }

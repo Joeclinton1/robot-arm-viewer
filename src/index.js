@@ -7,6 +7,7 @@ import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import URDFManipulator from './urdf-manipulator-element.js';
 import { OBJExporter } from './OBJExporter.js';
+import { DAEExporter } from './DAEExporter.js';
 
 customElements.define('urdf-viewer', URDFManipulator);
 
@@ -87,22 +88,23 @@ upSelect.addEventListener('change', () => viewer.up = upSelect.value);
 
 controlsToggle.addEventListener('click', () => controlsel.classList.toggle('hidden'));
 
-// Export OBJ functionality
+// Export DAE functionality
 exportObjButton.addEventListener('click', () => {
     if (!viewer.robot) {
         alert('No robot loaded to export!');
         return;
     }
 
-    console.log('Exporting robot to OBJ format...');
-    const exporter = new OBJExporter();
-    const objContent = exporter.parse(viewer.robot);
+    console.log('Exporting robot to DAE format...');
 
     // Generate filename based on URDF name or use default
     const urdfPath = viewer.urdf || 'robot';
-    const filename = urdfPath.split('/').pop().replace('.urdf', '') + '.obj';
+    const filename = urdfPath.split('/').pop().replace('.urdf', '') + '.dae';
 
-    OBJExporter.download(objContent, filename);
+    const exporter = new DAEExporter();
+    const daeContent = exporter.parse(viewer.robot);
+
+    DAEExporter.download(daeContent, filename);
     console.log('Export complete!');
 });
 
