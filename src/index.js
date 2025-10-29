@@ -503,6 +503,7 @@ const updateRobotInfo = (robotName) => {
             <div><strong>Payload:</strong> ${robot.specs.payload}</div>
             <div><strong>Reach:</strong> ${robot.specs.reach}</div>
             <div><strong>Repeatability:</strong> ${robot.specs.repeatability}</div>
+            <div><strong>DOF:</strong> ${robot.specs.dof ?? 'N/A'}</div>
         `;
     } else {
         specsContainer.innerHTML = '';

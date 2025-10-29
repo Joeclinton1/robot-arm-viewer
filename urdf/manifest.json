@@ -7,7 +7,8 @@
             "price": "$2,499",
             "payload": "1.5 kg",
             "reach": "63 cm",
-            "repeatability": "0.1 mm"
+            "repeatability": "0.1 mm",
+            "dof": "6"
         }
     },
     {
@@ -18,7 +19,8 @@
             "price": "$2,999",
             "payload": "2 kg",
             "reach": "75 cm",
-            "repeatability": "1 mm"
+            "repeatability": "1 mm",
+            "dof": "6"
         }
     },
     {
@@ -29,7 +31,8 @@
             "price": "$120",
             "payload": "0.4 kg",
             "reach": "45 cm",
-            "repeatability": "10 mm"
+            "repeatability": "10 mm",
+            "dof": "5"
         }
     },
     {
@@ -40,7 +43,8 @@
             "price": "$4,546",
             "payload": "1.5 kg",
             "reach": "70 cm",
-            "repeatability": "1 mm"
+            "repeatability": "1 mm",
+            "dof": "6"
         }
     }
 ]
