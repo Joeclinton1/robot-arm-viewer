@@ -34,6 +34,97 @@ const interactionInstruction = document.getElementById('interaction-instruction'
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 1 / DEG2RAD;
 let sliders = {};
+let gripperControl = null;
+let gripperTarget = null;
+let gripperNextTarget = null;
+let gripperLastTargetTime = 0;
+const gripperTargetDuration = 900;
+const gripperStepFraction = 0.28;
+
+const jointLimit = joint => ({
+    lower: Number.isFinite(joint?.limit?.lower) ? joint.limit.lower : -1,
+    upper: Number.isFinite(joint?.limit?.upper) ? joint.limit.upper : 1,
+});
+
+const jointSpan = joint => {
+    const limit = jointLimit(joint);
+    return Math.max(0, limit.upper - limit.lower);
+};
+
+const getJointValue = joint => joint?.angle ?? joint?.jointValue?.[0] ?? 0;
+
+const createSingleJointGripperControl = joint => {
+    const limit = jointLimit(joint);
+    return {
+        name: joint.name,
+        type: joint.jointType,
+        limits: limit,
+        getValue: () => getJointValue(joint),
+        setValue: value => viewer.setJointValue(joint.name, value),
+        containsJoint: candidate => candidate?.name === joint.name,
+    };
+};
+
+const createPairedPrismaticGripperControl = joints => {
+    const spans = joints.map(jointSpan).filter(span => span > 0);
+    const maxOpen = spans.length ? Math.min(...spans) : 0.04;
+    const openSign = joint => {
+        const limit = jointLimit(joint);
+        if (limit.upper <= 0 && limit.lower < 0) return -1;
+        if (limit.lower >= 0 && limit.upper > 0) return 1;
+        return Math.abs(limit.upper) >= Math.abs(limit.lower) ? 1 : -1;
+    };
+    const center = joint => {
+        const limit = jointLimit(joint);
+        if (limit.lower < 0 && limit.upper > 0) return 0;
+        return Math.abs(limit.lower) < Math.abs(limit.upper) ? limit.lower : limit.upper;
+    };
+
+    return {
+        name: 'gripper',
+        type: 'prismatic',
+        limits: { lower: 0, upper: maxOpen },
+        joints,
+        getValue: () => Math.max(0, ...joints.map(joint => Math.abs(getJointValue(joint) - center(joint)))),
+        setValue: value => {
+            const open = Math.max(0, Math.min(maxOpen, Number(value) || 0));
+            joints.forEach(joint => viewer.setJointValue(joint.name, center(joint) + openSign(joint) * open));
+        },
+        containsJoint: candidate => joints.some(joint => joint.name === candidate?.name),
+    };
+};
+
+const createPincOpenGripperControl = sidecar => ({
+    name: sidecar.driverJointName || 'autorig_cam_to_motor_frame',
+    type: 'revolute',
+    limits: sidecar.angleLimits || { lower: 0, upper: Math.PI * 2 },
+    getValue: () => sidecar.angle,
+    setValue: value => sidecar.setAngle(value),
+    containsJoint: joint => joint?.name === (sidecar.driverJointName || 'autorig_cam_to_motor_frame'),
+});
+
+const findDetectedGripperControl = () => {
+    if (!viewer.robot?.joints) return null;
+
+    const joints = Object.values(viewer.robot.joints).filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed');
+    const sorted = getSortedMovableJoints();
+    const tail = sorted.slice(-2);
+    if (tail.length === 2 && tail.every(joint => joint.jointType === 'prismatic')) {
+        return createPairedPrismaticGripperControl(tail);
+    }
+
+    const named = joints.find(joint => /(^|[_-])gripper($|[_-]joint$)|^gripper$/i.test(joint.name || ''));
+    if (named) return createSingleJointGripperControl(named);
+
+    return null;
+};
+
+const setGripperControl = control => {
+    gripperControl = control;
+    gripperTarget = control ? control.getValue() : null;
+    gripperNextTarget = gripperTarget;
+    gripperLastTargetTime = performance.now();
+};
 
 function loadObjWithOptionalMtl(path, manager, done) {
     const basePath = THREE.LoaderUtils.extractUrlBase(path);
@@ -206,6 +297,7 @@ viewer.addEventListener('urdf-change', () => {
         .values(sliders)
         .forEach(sl => sl.remove());
     sliders = {};
+    setGripperControl(null);
 
 });
 
@@ -220,6 +312,9 @@ viewer.addEventListener('ignore-limits-change', () => {
 viewer.addEventListener('angle-change', e => {
 
     if (sliders[e.detail]) sliders[e.detail].update();
+    if (gripperControl?.joints?.some(joint => joint.name === e.detail)) {
+        sliders[gripperControl.name]?.update();
+    }
 
 });
 
@@ -262,6 +357,7 @@ viewer.addEventListener('urdf-processed', () => {
 
     const r = viewer.robot;
     updateLoadedRobotInfo();
+    setGripperControl(findDetectedGripperControl());
     Object
         .keys(r.joints)
         .sort((a, b) => {
@@ -281,6 +377,7 @@ viewer.addEventListener('urdf-processed', () => {
         })
         .map(key => r.joints[key])
         .forEach(joint => {
+            if (gripperControl?.containsJoint(joint) && gripperControl.joints) return;
 
             const li = document.createElement('li');
             li.innerHTML =
@@ -363,12 +460,52 @@ viewer.addEventListener('urdf-processed', () => {
 
         });
 
+    if (gripperControl?.joints) {
+        const li = document.createElement('li');
+        li.innerHTML =
+        `
+        <span title="${ gripperControl.joints.map(joint => joint.name).join(' + ') }">gripper</span>
+        <input type="range" value="0" step="0.0001"/>
+        <input type="number" step="0.0001" />
+        `;
+        li.setAttribute('joint-type', gripperControl.type);
+        li.setAttribute('joint-name', gripperControl.name);
+        sliderList.appendChild(li);
+
+        const slider = li.querySelector('input[type="range"]');
+        const input = li.querySelector('input[type="number"]');
+        li.update = () => {
+            const value = gripperControl.getValue();
+            input.value = Math.abs(value) > 1 ? parseFloat(value.toFixed(1)) : parseFloat(value.toPrecision(2));
+            slider.value = value;
+            slider.min = gripperControl.limits.lower;
+            slider.max = gripperControl.limits.upper;
+            input.min = gripperControl.limits.lower;
+            input.max = gripperControl.limits.upper;
+        };
+
+        slider.addEventListener('input', () => {
+            gripperControl.setValue(slider.value);
+            li.update();
+        });
+
+        input.addEventListener('change', () => {
+            gripperControl.setValue(input.value);
+            li.update();
+        });
+
+        li.update();
+        sliders[gripperControl.name] = li;
+    }
+
 });
 
 viewer.addEventListener('pincopen-sidecar-loaded', e => {
     const sidecar = viewer.pincOpenSidecar;
     const jointName = e.detail?.jointName || sidecar?.driverJointName || 'autorig_cam_to_motor_frame';
-    if (!sidecar || e.detail?.hasRobotJoint || sliders[jointName]) return;
+    if (!sidecar) return;
+    setGripperControl(createPincOpenGripperControl(sidecar));
+    if (e.detail?.hasRobotJoint || sliders[jointName]) return;
 
     const li = document.createElement('li');
     li.innerHTML =
@@ -490,11 +627,50 @@ let transitionProgress = 1; // 0 to 1
 let transitionDuration = 2000; // milliseconds
 let lastTransitionTime = 0;
 
+const randomGripperTarget = () => {
+    if (!gripperControl) return null;
+    const { lower, upper } = gripperControl.limits;
+    const span = Math.max(0, upper - lower);
+    if (span <= 0) return lower;
+
+    const current = gripperControl.getValue();
+    const maxStep = span * gripperStepFraction;
+    const biased = Math.random() < 0.22
+        ? (Math.random() < 0.5 ? lower : upper)
+        : lower + Math.random() * span;
+    const delta = Math.max(-maxStep, Math.min(maxStep, biased - current));
+    return Math.max(lower, Math.min(upper, current + delta));
+};
+
+const updateAnimatedGripper = now => {
+    if (!gripperControl || viewer.ikControls?.isDragging) return;
+
+    if (gripperTarget === null || gripperNextTarget === null) {
+        gripperTarget = gripperControl.getValue();
+        gripperNextTarget = randomGripperTarget();
+        gripperLastTargetTime = now;
+    }
+
+    if (now - gripperLastTargetTime >= gripperTargetDuration) {
+        gripperTarget = gripperControl.getValue();
+        gripperNextTarget = randomGripperTarget();
+        gripperLastTargetTime = now;
+    }
+
+    const progress = Math.min(1, (now - gripperLastTargetTime) / gripperTargetDuration);
+    const t = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    const value = gripperTarget + (gripperNextTarget - gripperTarget) * t;
+    gripperControl.setValue(value);
+    sliders[gripperControl.name]?.update();
+};
+
 const getSortedMovableJoints = () => {
     if (!viewer.robot) return [];
     return Object
         .values(viewer.robot.joints)
-        .filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed')
+        .filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed' && !gripperControl?.containsJoint(joint))
         .sort((a, b) => {
             const aMatch = a.name.match(/(?:^|_to_)link(\d+)|base_link/);
             const bMatch = b.name.match(/(?:^|_to_)link(\d+)|base_link/);
@@ -777,6 +953,7 @@ const updateAngles = () => {
 const updateLoop = () => {
 
     if (animToggle.classList.contains('checked')) {
+        updateAnimatedGripper(performance.now());
         updateAngles();
     }
 
