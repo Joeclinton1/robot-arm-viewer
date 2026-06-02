@@ -146,6 +146,7 @@ export default class PincOpenSidecar {
         this.parts = [];
         this.manifestUrl = null;
         this.syntheticJoint = null;
+        this.anchor = null;
     }
 
     dispose() {
@@ -162,6 +163,8 @@ export default class PincOpenSidecar {
         }
         if (this.syntheticJoint?.parent) this.syntheticJoint.parent.remove(this.syntheticJoint);
         this.syntheticJoint = null;
+        if (this.anchor?.parent) this.anchor.parent.remove(this.anchor);
+        this.anchor = null;
     }
 
     async loadForCurrentUrdf() {
@@ -197,7 +200,7 @@ export default class PincOpenSidecar {
         this.group.name = 'pincopen_sidecar';
         this.group.isURDFVisual = true;
 
-        this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
+        const replacedVisual = this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
 
         const manager = new THREE.LoadingManager();
         if (this.viewer.urlModifierFunc) manager.setURLModifier(this.viewer.urlModifierFunc);
@@ -225,8 +228,9 @@ export default class PincOpenSidecar {
         }
 
         const attachLink = robot.links?.[manifest.attach_link || 'gripper'] || robot;
+        const attachParent = this._createAnchorFromReplacedVisual(replacedVisual) || attachLink;
         if (!this.driverJoint) {
-            this.driverJoint = this._createSyntheticJoint(this.driverJointName, attachLink);
+            this.driverJoint = this._createSyntheticJoint(this.driverJointName, attachParent);
             robot.joints[this.driverJointName] = this.driverJoint;
         }
         this.driverJoint.add(this.group);
@@ -271,6 +275,18 @@ export default class PincOpenSidecar {
         return joint;
     }
 
+    _createAnchorFromReplacedVisual(visual) {
+        if (!visual?.parent) return null;
+        const anchor = new THREE.Object3D();
+        anchor.name = 'pincopen_sidecar_anchor';
+        anchor.position.copy(visual.position);
+        anchor.quaternion.copy(visual.quaternion);
+        anchor.scale.copy(visual.scale);
+        visual.parent.add(anchor);
+        this.anchor = anchor;
+        return anchor;
+    }
+
     async _loadManifestUrl(urdf) {
         const base = THREE.LoaderUtils.extractUrlBase(urdf);
         const parent = parentDirectory(base);
@@ -296,6 +312,7 @@ export default class PincOpenSidecar {
     }
 
     _hideReplacedGeometry(robot, rules) {
+        let firstMatch = null;
         robot.traverse(node => {
             if (!node.isURDFVisual && !node.isURDFCollider) return;
 
@@ -306,9 +323,11 @@ export default class PincOpenSidecar {
                 keywordMatch(node.urdfMeshPath, rules.meshKeywords);
 
             if (matchesLink || matchesVisual || matchesMesh) {
+                if (!firstMatch && node.isURDFVisual) firstMatch = node;
                 node.visible = false;
             }
         });
+        return firstMatch;
     }
 
     _nearestLink(node) {
