@@ -684,6 +684,7 @@ const getSortedMovableJoints = () => {
 const getAnimationEffector = () => {
     const joints = getSortedMovableJoints();
     if (joints.length === 0) return null;
+    if (gripperControl) return joints[joints.length - 1];
     return joints.length >= 2 ? joints[joints.length - 2] : joints[joints.length - 1];
 };
 
