@@ -12,6 +12,18 @@
         }
     },
     {
+        "name": "GEM",
+        "path": "./urdf/GEM/urdf/GEM.urdf",
+        "color": "#263238",
+        "specs": {
+            "price": "$450",
+            "payload": "1 kg",
+            "reach": "58 cm",
+            "repeatability": "N/A",
+            "dof": "7"
+        }
+    },
+    {
         "name": "I2RT YAM",
         "path": "./urdf/I2RT YAM/urdf/yam.urdf",
         "color": "#263238",
