@@ -431,17 +431,19 @@ const getSortedMovableJoints = () => {
 const getAnimationEffector = () => {
     const joints = getSortedMovableJoints();
     if (joints.length === 0) return null;
-    return joints[joints.length - 1];
+    return joints.length >= 2 ? joints[joints.length - 2] : joints[joints.length - 1];
 };
 
 const getHumanoidArmProfile = () => {
     if (!viewer.robot) return null;
     const joints = viewer.robot.joints || {};
     const shoulderMount = joints.left_shoulder_mount || joints.right_shoulder_mount;
+    const shoulderJoint = getSortedMovableJoints()[0];
     if (!shoulderMount) return null;
     return {
         side: joints.right_shoulder_mount ? 'right' : 'left',
         shoulderMount,
+        shoulderJoint,
     };
 };
 
@@ -475,7 +477,7 @@ const estimateAnimationReach = () => {
 };
 
 const getHumanoidFrontVector = (humanoid) => {
-    const shoulderJoint = getSortedMovableJoints()[0];
+    const shoulderJoint = humanoid.shoulderJoint || getSortedMovableJoints()[0];
     const worldUp = new THREE.Vector3(0, 1, 0);
 
     if (!shoulderJoint?.axis) {
@@ -503,28 +505,67 @@ const getHumanoidFrontVector = (humanoid) => {
     return front.normalize();
 };
 
-const randomUnitVectorInFrontOfArm = (humanoid) => {
+const getHumanoidWorkspaceBasis = (humanoid) => {
     const front = getHumanoidFrontVector(humanoid);
     const worldUp = new THREE.Vector3(0, 1, 0);
-    let side = new THREE.Vector3().crossVectors(front, worldUp);
+    const shoulderJoint = humanoid.shoulderJoint || getSortedMovableJoints()[0];
+    let side = shoulderJoint?.axis
+        ? shoulderJoint.axis.clone().transformDirection(shoulderJoint.matrixWorld)
+        : new THREE.Vector3(0, 0, humanoid.side === 'right' ? -1 : 1);
+    if (side.length() < 0.001) {
+        side = new THREE.Vector3(0, 0, humanoid.side === 'right' ? -1 : 1);
+    }
+    side.y = 0;
     if (side.length() < 0.001) {
         side = new THREE.Vector3(0, 0, humanoid.side === 'right' ? -1 : 1);
     }
     side.normalize();
+    if (humanoid.side === 'left' && side.z > 0) side.multiplyScalar(-1);
+    if (humanoid.side === 'right' && side.z < 0) side.multiplyScalar(-1);
 
     front.normalize();
 
-    const up = new THREE.Vector3().crossVectors(front, side).normalize();
-    const lateralOffset = (Math.random() - 0.5) * 1.0;
-    const verticalOffset = (Math.random() - 0.45) * 0.85;
-    const forwardWeight = 1.0 + Math.random() * 0.65;
+    const up = worldUp.clone();
+    return { front, side, up };
+};
 
-    return front
+const randomPointInFrontWorkspace = (humanoid, shoulder, reach) => {
+    const { front, side, up } = getHumanoidWorkspaceBasis(humanoid);
+    const minDistance = Math.max(0.08, reach * 0.1);
+    const maxDistance = Math.max(minDistance + 0.05, reach * 0.78);
+    const current = getCurrentAnimationTarget();
+    const maxStep = Math.max(0.1, reach * 0.32);
+
+    for (let attempt = 0; attempt < 24; attempt++) {
+        const forwardDistance = reach * (0.12 + Math.random() * 0.48);
+        const lateralDistance = reach * (0.05 + Math.random() * 0.48);
+        const verticalDistance = reach * (-0.55 + Math.random() * 0.85);
+        const offset = front
+            .clone()
+            .multiplyScalar(forwardDistance)
+            .add(side.clone().multiplyScalar(lateralDistance))
+            .add(up.clone().multiplyScalar(verticalDistance));
+        const distance = offset.length();
+        const candidate = shoulder.clone().add(offset);
+
+        if (
+            distance >= minDistance &&
+            distance <= maxDistance &&
+            offset.dot(front) > reach * 0.05 &&
+            candidate.y <= shoulder.y + reach * 0.28 &&
+            candidate.distanceTo(current) <= maxStep
+        ) {
+            return candidate;
+        }
+    }
+
+    const currentOffset = current.clone().sub(shoulder);
+    const currentForward = Math.max(reach * 0.14, currentOffset.dot(front));
+    const clampedForward = Math.min(currentForward + reach * 0.18, reach * 0.62);
+    return shoulder
         .clone()
-        .multiplyScalar(forwardWeight)
-        .add(side.multiplyScalar(lateralOffset))
-        .add(up.multiplyScalar(verticalOffset))
-        .normalize();
+        .add(front.multiplyScalar(clampedForward))
+        .add(up.multiplyScalar(-reach * 0.18));
 };
 
 // Generate random point in cube workspace in front of robot
@@ -533,12 +574,7 @@ const generateRandomTarget = () => {
     if (humanoid) {
         const shoulder = humanoid.shoulderMount.getWorldPosition(new THREE.Vector3());
         const reach = estimateAnimationReach();
-        const minRadius = Math.max(0.12, reach * 0.22);
-        const maxRadius = Math.max(minRadius + 0.05, reach * 0.96);
-        const radius = minRadius + Math.random() * (maxRadius - minRadius);
-        const direction = randomUnitVectorInFrontOfArm(humanoid);
-
-        return shoulder.clone().add(direction.multiplyScalar(radius));
+        return randomPointInFrontWorkspace(humanoid, shoulder, reach);
     }
 
     // Actual coordinate system: X = forward/back, Y = up/down, Z = left/right
@@ -616,7 +652,7 @@ const updateAngles = () => {
     if (transitionProgress >= 1) {
         // Start new transition
         viewer.ikControls.currentSolver?.resetRestPose?.();
-        currentTarget.copy(nextTarget);
+        currentTarget.copy(getCurrentAnimationTarget());
         nextTarget = generateRandomTarget();
         transitionProgress = 0;
         lastTransitionTime = now;

@@ -98,12 +98,13 @@ class SimpleIKSolver {
         this.dampingFactor = 0.5; // Increased for smoother motion
         this.maxAngleChangePerIteration = 0.15; // Limit angle changes for smoothness
         this.smoothingFactor = 0.3; // For interpolating towards target angles
-        this.restPoseWeight = 0.12; // Bias redundant chains toward their starting pose
+        this.restPoseWeight = 0.0; // Bias redundant chains toward their starting pose
 
         // Store initial orientation to preserve it
         this.initialOrientation = new Vector3();
         this.effector.getWorldDirection(this.initialOrientation);
         this.initialOrientation.normalize();
+        this.levelTargetUp = null;
 
         // Store previous joint angles for smoothing
         this.previousAngles = new Map();
@@ -114,7 +115,8 @@ class SimpleIKSolver {
         });
 
         // Orientation preservation weight (0 = ignore orientation, 1 = strongly preserve)
-        this.orientationWeight = 0.65;
+        this.orientationWeight = 0.3;
+        this.levelOrientation = false;
     }
 
     clampJointAngle(joint, angle) {
@@ -134,6 +136,32 @@ class SimpleIKSolver {
             this.restAngles.set(joint, joint.angle);
             this.previousAngles.set(joint, joint.angle);
         });
+        if (this.levelOrientation) {
+            this.levelTargetUp = new Vector3(0, 1, 0)
+                .transformDirection(this.effector.matrixWorld)
+                .normalize();
+        }
+    }
+
+    setLevelOrientation(enabled) {
+        this.levelOrientation = enabled;
+        if (enabled) {
+            this.levelTargetUp = new Vector3(0, 1, 0)
+                .transformDirection(this.effector.matrixWorld)
+                .normalize();
+            this.orientationWeight = 0.9;
+            this.restPoseWeight = 0.08;
+            this.maxIterations = 24;
+            this.dampingFactor = 0.65;
+            this.smoothingFactor = 0.38;
+        } else {
+            this.levelTargetUp = null;
+            this.orientationWeight = 0.3;
+            this.restPoseWeight = 0.0;
+            this.maxIterations = 15;
+            this.dampingFactor = 0.5;
+            this.smoothingFactor = 0.3;
+        }
     }
 
     getChainReach() {
@@ -154,7 +182,7 @@ class SimpleIKSolver {
 
         return reach;
     }
-    
+
     getEffectorEndPoint() {
         // Use the stored end point if available, otherwise use joint position
         if (this.effector.endPoint) {
@@ -240,7 +268,7 @@ class SimpleIKSolver {
                 let newAngle = previousAngle + (targetAngle - previousAngle) * this.smoothingFactor;
 
                 const restAngle = this.restAngles.get(joint);
-                if (restAngle !== undefined) {
+                if (restAngle !== undefined && this.restPoseWeight > 0) {
                     newAngle += (restAngle - newAngle) * this.restPoseWeight;
                 }
 
@@ -260,7 +288,6 @@ class SimpleIKSolver {
                 }
             }
 
-            // Check if we should apply orientation correction
             if (this.orientationWeight > 0) {
                 this.correctOrientation();
             }
@@ -275,19 +302,24 @@ class SimpleIKSolver {
         }
     }
 
-    // Apply gentle orientation correction to prevent end effector from twisting
+    // Apply gentle orientation correction to keep the end effector level.
     correctOrientation() {
-        const currentOrientation = new Vector3();
-        this.effector.getWorldDirection(currentOrientation);
-        currentOrientation.normalize();
+        if (!this.levelOrientation) {
+            return this.correctInitialOrientation();
+        }
 
-        // Calculate how much the orientation has drifted
-        const orientationDot = currentOrientation.dot(this.initialOrientation);
+        const currentUp = new Vector3(0, 1, 0)
+            .transformDirection(this.effector.matrixWorld)
+            .normalize();
+        const targetUp = this.levelTargetUp;
+        if (!targetUp) return;
+        const orientationDot = currentUp.dot(targetUp);
 
-        // If orientation has changed significantly, try to correct it
-        if (orientationDot < 0.98) { // Allow some drift
-            // Find joints that can affect orientation (usually the last few joints)
-            const orientationJoints = this.chain.slice(-2); // Last 2 joints typically control orientation
+        if (orientationDot < 0.999) {
+            const orientationJoints = this.chain.slice(-3);
+            const cross = currentUp.clone().cross(targetUp);
+            const error = Math.min(1, cross.length());
+            if (error < 0.0005) return;
 
             for (const chainItem of orientationJoints) {
                 const joint = chainItem.joint;
@@ -305,12 +337,10 @@ class SimpleIKSolver {
                 }
                 const axisWorld = axis.clone().transformDirection(joint.matrixWorld).normalize();
 
-                // Calculate correction angle
-                const cross = currentOrientation.clone().cross(this.initialOrientation);
                 const correctionDirection = Math.sign(cross.dot(axisWorld));
+                if (correctionDirection === 0) continue;
 
-                // Apply small correction weighted by orientation preservation parameter
-                const correctionAngle = correctionDirection * 0.02 * this.orientationWeight;
+                const correctionAngle = correctionDirection * Math.min(0.045, error * 0.08) * this.orientationWeight;
                 let newAngle = joint.angle + correctionAngle;
 
                 newAngle = this.clampJointAngle(joint, newAngle);
@@ -319,6 +349,49 @@ class SimpleIKSolver {
                 this.previousAngles.set(joint, newAngle);
 
                 // Notify UI that joint angle changed
+                if (this.updateCallback) {
+                    this.updateCallback(joint);
+                }
+            }
+        }
+    }
+
+    correctInitialOrientation() {
+        const currentOrientation = new Vector3();
+        this.effector.getWorldDirection(currentOrientation);
+        currentOrientation.normalize();
+
+        const orientationDot = currentOrientation.dot(this.initialOrientation);
+
+        if (orientationDot < 0.98) {
+            const orientationJoints = this.chain.slice(-2);
+
+            for (const chainItem of orientationJoints) {
+                const joint = chainItem.joint;
+
+                if (joint.jointType !== 'revolute' && joint.jointType !== 'continuous') {
+                    continue;
+                }
+
+                const axis = new Vector3();
+                if (joint.axis) {
+                    axis.copy(joint.axis);
+                } else {
+                    axis.set(0, 0, 1);
+                }
+                const axisWorld = axis.clone().transformDirection(joint.matrixWorld).normalize();
+
+                const cross = currentOrientation.clone().cross(this.initialOrientation);
+                const correctionDirection = Math.sign(cross.dot(axisWorld));
+
+                const correctionAngle = correctionDirection * 0.02 * this.orientationWeight;
+                let newAngle = joint.angle + correctionAngle;
+
+                newAngle = this.clampJointAngle(joint, newAngle);
+
+                joint.setJointValue(newAngle);
+                this.previousAngles.set(joint, newAngle);
+
                 if (this.updateCallback) {
                     this.updateCallback(joint);
                 }
