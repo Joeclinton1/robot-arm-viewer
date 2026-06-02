@@ -623,9 +623,11 @@ document.addEventListener('WebComponentsReady', () => {
 // Animation state for IK targeting
 let currentTarget = new THREE.Vector3();
 let nextTarget = new THREE.Vector3();
+let smoothedTarget = new THREE.Vector3();
 let transitionProgress = 1; // 0 to 1
 let transitionDuration = 2000; // milliseconds
 let lastTransitionTime = 0;
+let activeAnimationUsesHumanoidWorkspace = false;
 
 const randomGripperTarget = () => {
     if (!gripperControl) return null;
@@ -687,12 +689,22 @@ const getSortedMovableJoints = () => {
         .filter(joint => !gripperControl?.containsJoint(joint));
 };
 
+const getRemoteSortedMovableJoints = () => {
+    if (!viewer.robot) return [];
+    return Object
+        .keys(viewer.robot.joints)
+        .filter(name => {
+            const joint = viewer.robot.joints[name];
+            return joint.isURDFJoint && joint.jointType !== 'fixed';
+        })
+        .sort()
+        .map(name => viewer.robot.joints[name]);
+};
+
 const getAnimationEffector = () => {
-    const joints = getAllSortedMovableJoints();
+    const joints = getRemoteSortedMovableJoints();
     if (joints.length === 0) return null;
-    return getHumanoidArmProfile() && joints.length >= 2
-        ? joints[joints.length - 2]
-        : joints[joints.length - 1];
+    return joints.length >= 2 ? joints[joints.length - 2] : joints[joints.length - 1];
 };
 
 const getHumanoidArmProfile = () => {
@@ -862,10 +874,19 @@ const generateRandomTarget = () => {
 };
 
 const initializeAnimationTargets = () => {
-    viewer.ikControls?.currentSolver?.resetRestPose?.();
-    currentTarget.copy(getCurrentAnimationTarget());
+    activeAnimationUsesHumanoidWorkspace = Boolean(getHumanoidArmProfile());
+
+    if (activeAnimationUsesHumanoidWorkspace) {
+        viewer.ikControls?.currentSolver?.resetRestPose?.();
+        currentTarget.copy(getCurrentAnimationTarget());
+        transitionProgress = 0;
+    } else {
+        currentTarget.copy(generateRandomTarget());
+        transitionProgress = 1;
+    }
+
     nextTarget = generateRandomTarget();
-    transitionProgress = 0;
+    smoothedTarget.copy(currentTarget);
     lastTransitionTime = performance.now();
 
     if (viewer.ikControls?.currentTarget) {
@@ -912,8 +933,12 @@ const updateAngles = () => {
     // Check if we need a new target
     if (transitionProgress >= 1) {
         // Start new transition
-        viewer.ikControls.currentSolver?.resetRestPose?.();
-        currentTarget.copy(getCurrentAnimationTarget());
+        if (activeAnimationUsesHumanoidWorkspace) {
+            viewer.ikControls.currentSolver?.resetRestPose?.();
+            currentTarget.copy(getCurrentAnimationTarget());
+        } else {
+            currentTarget.copy(nextTarget);
+        }
         nextTarget = generateRandomTarget();
         transitionProgress = 0;
         lastTransitionTime = now;
@@ -930,6 +955,9 @@ const updateAngles = () => {
 
     // Interpolate between current and next target
     const targetPos = new THREE.Vector3().lerpVectors(currentTarget, nextTarget, t);
+    const solverTargetPos = activeAnimationUsesHumanoidWorkspace
+        ? targetPos
+        : smoothedTarget.lerp(targetPos, 0.16);
 
     // Apply IK if solver is active
     if (viewer.ikControls && viewer.ikControls.currentSolver && viewer.ikControls.currentTarget) {
@@ -939,7 +967,7 @@ const updateAngles = () => {
         }
 
         // Update target position
-        viewer.ikControls.currentTarget.position.copy(targetPos);
+        viewer.ikControls.currentTarget.position.copy(solverTargetPos);
 
         // Solve IK
         viewer.ikControls.currentSolver.solve();
