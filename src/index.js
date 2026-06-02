@@ -350,8 +350,10 @@ viewer.addEventListener('urdf-processed', () => {
             });
 
             input.addEventListener('change', () => {
-                const degMultiplier = radiansToggle.classList.contains('checked') ? 1.0 : DEG2RAD;
-                viewer.setJointValue(joint.name, input.value * degMultiplier);
+                const valueMultiplier = joint.jointType === 'revolute' || joint.jointType === 'continuous'
+                    ? (radiansToggle.classList.contains('checked') ? 1.0 : DEG2RAD)
+                    : 1.0;
+                viewer.setJointValue(joint.name, input.value * valueMultiplier);
                 li.update();
             });
 
@@ -361,6 +363,55 @@ viewer.addEventListener('urdf-processed', () => {
 
         });
 
+});
+
+viewer.addEventListener('pincopen-sidecar-loaded', e => {
+    const sidecar = viewer.pincOpenSidecar;
+    const jointName = e.detail?.jointName || sidecar?.driverJointName || 'autorig_cam_to_motor_frame';
+    if (!sidecar || e.detail?.hasRobotJoint || sliders[jointName]) return;
+
+    const li = document.createElement('li');
+    li.innerHTML =
+    `
+    <span title="${ jointName }">${ jointName }</span>
+    <input type="range" value="0" step="0.0001"/>
+    <input type="number" step="0.0001" />
+    `;
+    li.setAttribute('joint-type', 'revolute');
+    li.setAttribute('joint-name', jointName);
+
+    sliderList.appendChild(li);
+
+    const slider = li.querySelector('input[type="range"]');
+    const input = li.querySelector('input[type="number"]');
+    const limits = e.detail?.limits || sidecar.angleLimits || { lower: -0.9, upper: 0.9 };
+
+    li.update = () => {
+        const degMultiplier = radiansToggle.classList.contains('checked') ? 1.0 : RAD2DEG;
+        let angle = sidecar.angle * degMultiplier;
+        angle = Math.abs(angle) > 1 ? angle.toFixed(1) : angle.toPrecision(2);
+
+        input.value = parseFloat(angle);
+        slider.value = sidecar.angle;
+        slider.min = limits.lower;
+        slider.max = limits.upper;
+        input.min = limits.lower * degMultiplier;
+        input.max = limits.upper * degMultiplier;
+    };
+
+    slider.addEventListener('input', () => {
+        sidecar.setAngle(slider.value);
+        li.update();
+    });
+
+    input.addEventListener('change', () => {
+        const valueMultiplier = radiansToggle.classList.contains('checked') ? 1.0 : DEG2RAD;
+        sidecar.setAngle(input.value * valueMultiplier);
+        li.update();
+    });
+
+    li.update();
+    sliders[jointName] = li;
 });
 
 document.addEventListener('WebComponentsReady', () => {

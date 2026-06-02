@@ -3,6 +3,7 @@ import { MeshStandardMaterial } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import URDFLoader from './URDFLoader.js';
+import PincOpenSidecar from './PincOpenSidecar.js';
 
 const emptyRaycast = () => {};
 
@@ -69,6 +70,7 @@ export default class URDFViewer extends HTMLElement {
     this.loadMeshFunc = null;
     this.urlModifierFunc = null;
     this.envMap = null;
+    this.pincOpenSidecar = new PincOpenSidecar(this);
 
     // scene
     const scene = new THREE.Scene();
@@ -208,6 +210,7 @@ export default class URDFViewer extends HTMLElement {
     const j = this.robot.joints[jointName];
     if (!j) return;
     if (j.setJointValue(...values)) {
+      this.pincOpenSidecar.updateForJoint(jointName, j.angle);
       this.redraw();
       this.dispatchEvent(ev('angle-change', jointName));
     }
@@ -274,6 +277,7 @@ export default class URDFViewer extends HTMLElement {
     this._loadScheduled = true;
 
     if (this.robot) {
+      this.pincOpenSidecar.dispose();
       this.robot.traverse(c => c.dispose && c.dispose());
       this.robot.parent.remove(this.robot);
       this.robot = null;
@@ -311,6 +315,12 @@ export default class URDFViewer extends HTMLElement {
       this.dispatchEvent(ev('geometry-loaded'));
       if (!this.noAutoRecenter) this.recenter();
       else this.redraw();
+      this.pincOpenSidecar.loadForCurrentUrdf().then(loaded => {
+        if (!loaded) return;
+        this._upgradeMaterials(this.pincOpenSidecar.group);
+        if (!this.noAutoRecenter) this.recenter();
+        else this.redraw();
+      });
     };
 
     const loader = new URDFLoader(manager);
