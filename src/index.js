@@ -107,7 +107,7 @@ const findDetectedGripperControl = () => {
     if (!viewer.robot?.joints) return null;
 
     const joints = Object.values(viewer.robot.joints).filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed');
-    const sorted = getSortedMovableJoints();
+    const sorted = getAllSortedMovableJoints();
     const tail = sorted.slice(-2);
     if (tail.length === 2 && tail.every(joint => joint.jointType === 'prismatic')) {
         return createPairedPrismaticGripperControl(tail);
@@ -666,26 +666,33 @@ const updateAnimatedGripper = now => {
     sliders[gripperControl.name]?.update();
 };
 
-const getSortedMovableJoints = () => {
+const sortMovableJoints = joints => joints.sort((a, b) => {
+    const aMatch = a.name.match(/(?:^|_to_)link(\d+)|base_link/);
+    const bMatch = b.name.match(/(?:^|_to_)link(\d+)|base_link/);
+    const aIndex = a.name.includes('base_link') ? 0 : (aMatch ? parseFloat(aMatch[1]) : Number.POSITIVE_INFINITY);
+    const bIndex = b.name.includes('base_link') ? 0 : (bMatch ? parseFloat(bMatch[1]) : Number.POSITIVE_INFINITY);
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return a.name.localeCompare(b.name);
+});
+
+const getAllSortedMovableJoints = () => {
     if (!viewer.robot) return [];
-    return Object
+    return sortMovableJoints(Object
         .values(viewer.robot.joints)
-        .filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed' && !gripperControl?.containsJoint(joint))
-        .sort((a, b) => {
-            const aMatch = a.name.match(/(?:^|_to_)link(\d+)|base_link/);
-            const bMatch = b.name.match(/(?:^|_to_)link(\d+)|base_link/);
-            const aIndex = a.name.includes('base_link') ? 0 : (aMatch ? parseFloat(aMatch[1]) : Number.POSITIVE_INFINITY);
-            const bIndex = b.name.includes('base_link') ? 0 : (bMatch ? parseFloat(bMatch[1]) : Number.POSITIVE_INFINITY);
-            if (aIndex !== bIndex) return aIndex - bIndex;
-            return a.name.localeCompare(b.name);
-        });
+        .filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed'));
+};
+
+const getSortedMovableJoints = () => {
+    return getAllSortedMovableJoints()
+        .filter(joint => !gripperControl?.containsJoint(joint));
 };
 
 const getAnimationEffector = () => {
-    const joints = getSortedMovableJoints();
+    const joints = getAllSortedMovableJoints();
     if (joints.length === 0) return null;
-    if (gripperControl) return joints[joints.length - 1];
-    return joints.length >= 2 ? joints[joints.length - 2] : joints[joints.length - 1];
+    return getHumanoidArmProfile() && joints.length >= 2
+        ? joints[joints.length - 2]
+        : joints[joints.length - 1];
 };
 
 const getHumanoidArmProfile = () => {
@@ -954,8 +961,8 @@ const updateAngles = () => {
 const updateLoop = () => {
 
     if (animToggle.classList.contains('checked')) {
-        updateAnimatedGripper(performance.now());
         updateAngles();
+        updateAnimatedGripper(performance.now());
     }
 
     requestAnimationFrame(updateLoop);
