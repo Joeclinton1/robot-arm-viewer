@@ -142,9 +142,10 @@ export default class PincOpenSidecar {
         this.driverJoint = null;
         this.driverJointName = null;
         this.angle = 0;
-        this.angleLimits = { lower: -0.9, upper: 0.9 };
+        this.angleLimits = { lower: 0, upper: Math.PI * 2 };
         this.parts = [];
         this.manifestUrl = null;
+        this.syntheticJoint = null;
     }
 
     dispose() {
@@ -153,9 +154,14 @@ export default class PincOpenSidecar {
         this.driverJoint = null;
         this.driverJointName = null;
         this.angle = 0;
-        this.angleLimits = { lower: -0.9, upper: 0.9 };
+        this.angleLimits = { lower: 0, upper: Math.PI * 2 };
         this.parts = [];
         this.manifestUrl = null;
+        if (this.syntheticJoint && this.viewer.robot?.joints?.[this.syntheticJoint.name] === this.syntheticJoint) {
+            delete this.viewer.robot.joints[this.syntheticJoint.name];
+        }
+        if (this.syntheticJoint?.parent) this.syntheticJoint.parent.remove(this.syntheticJoint);
+        this.syntheticJoint = null;
     }
 
     async loadForCurrentUrdf() {
@@ -181,13 +187,15 @@ export default class PincOpenSidecar {
 
         this.manifestUrl = manifestUrl;
         this.driverJointName = manifest.driver_joint;
-        this.driverJoint = robot.joints?.[this.driverJointName] || null;
+        const realDriverJoint = robot.joints?.[this.driverJointName] || null;
+        this.driverJoint = realDriverJoint;
         this.angleLimits = {
             lower: manifest.angle_min ?? this.angleLimits.lower,
             upper: manifest.angle_max ?? this.angleLimits.upper,
         };
         this.group = new THREE.Group();
         this.group.name = 'pincopen_sidecar';
+        this.group.isURDFVisual = true;
 
         this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
 
@@ -216,7 +224,12 @@ export default class PincOpenSidecar {
             return false;
         }
 
-        robot.add(this.group);
+        const attachLink = robot.links?.[manifest.attach_link || 'gripper'] || robot;
+        if (!this.driverJoint) {
+            this.driverJoint = this._createSyntheticJoint(this.driverJointName, attachLink);
+            robot.joints[this.driverJointName] = this.driverJoint;
+        }
+        this.driverJoint.add(this.group);
         this.setAngle(this.driverJoint?.angle || 0);
         this.viewer.dispatchEvent(new CustomEvent('pincopen-sidecar-loaded', {
             bubbles: true,
@@ -225,11 +238,37 @@ export default class PincOpenSidecar {
             detail: {
                 jointName: this.driverJointName,
                 limits: this.angleLimits,
-                hasRobotJoint: !!this.driverJoint,
+                hasRobotJoint: !!realDriverJoint,
             },
         }));
         this.viewer.redraw();
         return true;
+    }
+
+    _createSyntheticJoint(name, parent) {
+        const joint = new THREE.Object3D();
+        joint.name = name;
+        joint.urdfName = name;
+        joint.isURDFJoint = true;
+        joint.jointType = 'revolute';
+        joint.axis = new THREE.Vector3(0, 0, 1);
+        joint.limit = { lower: this.angleLimits.lower, upper: this.angleLimits.upper };
+        joint.jointValue = [this.angle];
+        joint.mimicJoints = [];
+        joint.ignoreLimits = true;
+        joint.setJointValue = value => {
+            const angle = Number(value);
+            if (!Number.isFinite(angle) || angle === joint.jointValue[0]) return false;
+            joint.jointValue[0] = angle;
+            this.setAngle(angle);
+            return true;
+        };
+        Object.defineProperty(joint, 'angle', {
+            get: () => joint.jointValue[0],
+        });
+        parent.add(joint);
+        this.syntheticJoint = joint;
+        return joint;
     }
 
     async _loadManifestUrl(urdf) {
@@ -289,6 +328,7 @@ export default class PincOpenSidecar {
     setAngle(angle) {
         const value = Number(angle);
         this.angle = Number.isFinite(value) ? value : 0;
+        if (this.syntheticJoint) this.syntheticJoint.jointValue[0] = this.angle;
         for (const part of this.parts) {
             interpolateSample(part.object, part.samples, this.angle);
         }
