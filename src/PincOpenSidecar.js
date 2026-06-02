@@ -81,6 +81,16 @@ function normalizedReplaceRules(manifest) {
     };
 }
 
+function uniqueValues(values) {
+    return [...new Set(values.filter(Boolean))];
+}
+
+function parentDirectory(path) {
+    const trimmed = String(path || '').replace(/\/+$/g, '');
+    const index = trimmed.lastIndexOf('/');
+    return index === -1 ? '' : trimmed.substring(0, index + 1);
+}
+
 function applyMatrix(object, matrix) {
     matrix.decompose(_pos, _quat, _scale);
     object.position.copy(_pos);
@@ -154,12 +164,12 @@ export default class PincOpenSidecar {
         const robot = this.viewer.robot;
         if (!urdf || !robot) return false;
 
-        const base = THREE.LoaderUtils.extractUrlBase(urdf);
-        const manifestUrl = `${base}pincopen/manifest.json`;
+        const manifestUrl = await this._loadManifestUrl(urdf);
         let manifest = null;
+        if (!manifestUrl) return false;
 
         try {
-            const response = await fetch(manifestUrl, { credentials: 'same-origin' });
+            const response = await fetch(this._resolveUrl(manifestUrl), { credentials: 'same-origin' });
             if (!response.ok) return false;
             manifest = await response.json();
         } catch {
@@ -182,6 +192,7 @@ export default class PincOpenSidecar {
         this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
 
         const manager = new THREE.LoadingManager();
+        if (this.viewer.urlModifierFunc) manager.setURLModifier(this.viewer.urlModifierFunc);
         const sidecarBase = THREE.LoaderUtils.extractUrlBase(manifestUrl);
         for (const part of manifest.parts || []) {
             const object = await loadObjWithOptionalMtl(sidecarBase + part.mesh, manager);
@@ -219,6 +230,30 @@ export default class PincOpenSidecar {
         }));
         this.viewer.redraw();
         return true;
+    }
+
+    async _loadManifestUrl(urdf) {
+        const base = THREE.LoaderUtils.extractUrlBase(urdf);
+        const parent = parentDirectory(base);
+        const candidates = uniqueValues([
+            `${base}pincopen/manifest.json`,
+            `${parent}pincopen/manifest.json`,
+        ]);
+
+        for (const candidate of candidates) {
+            try {
+                const response = await fetch(this._resolveUrl(candidate), { credentials: 'same-origin' });
+                if (response.ok) return candidate;
+            } catch {
+                // try the next candidate
+            }
+        }
+
+        return null;
+    }
+
+    _resolveUrl(url) {
+        return this.viewer.urlModifierFunc ? this.viewer.urlModifierFunc(url) : url;
     }
 
     _hideReplacedGeometry(robot, rules) {
