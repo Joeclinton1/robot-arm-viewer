@@ -187,25 +187,31 @@ export function registerDragEvents(viewer, callback) {
                     const li = document.createElement('li');
                     li.setAttribute('urdf', model);
                     li.setAttribute('color', '#263238');
+                    li.setAttribute('data-custom-robot', 'true');
+                    li.setAttribute('data-robot-name', model.split(/[\\\/]/).pop().replace(/\.urdf$/i, ''));
                     // extract filename from full path
                     li.textContent = model.split(/[\\\/]/).pop();
                     urdfOptionsContainer.appendChild(li);
                 });
 
-                const selectedUrdf = filesNames
+                const selectedUrdf = fileNames
                     .filter(n => /urdf$/i.test(n))
                     .shift();
-
-                viewer.urdf = selectedUrdf;
 
                 // Set package to the directory containing the URDF
                 // This assumes URDF is at the same level as meshes/assets folders
                 if (selectedUrdf) {
                     const urdfDir = selectedUrdf.substring(0, selectedUrdf.lastIndexOf('/'));
                     viewer.package = urdfDir || '/';
+                    viewer.urdf = selectedUrdf;
                 }
 
-            }).then(() => callback());
+                return {
+                    availableModels,
+                    selectedUrdf,
+                };
+
+            }).then(dropInfo => callback(dropInfo));
 
     });
 

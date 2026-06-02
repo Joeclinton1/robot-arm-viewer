@@ -98,6 +98,7 @@ class SimpleIKSolver {
         this.dampingFactor = 0.5; // Increased for smoother motion
         this.maxAngleChangePerIteration = 0.15; // Limit angle changes for smoothness
         this.smoothingFactor = 0.3; // For interpolating towards target angles
+        this.restPoseWeight = 0.12; // Bias redundant chains toward their starting pose
 
         // Store initial orientation to preserve it
         this.initialOrientation = new Vector3();
@@ -106,12 +107,52 @@ class SimpleIKSolver {
 
         // Store previous joint angles for smoothing
         this.previousAngles = new Map();
+        this.restAngles = new Map();
         this.chain.forEach(chainItem => {
             this.previousAngles.set(chainItem.joint, chainItem.joint.angle);
+            this.restAngles.set(chainItem.joint, chainItem.joint.angle);
         });
 
         // Orientation preservation weight (0 = ignore orientation, 1 = strongly preserve)
-        this.orientationWeight = 0.3;
+        this.orientationWeight = 0.65;
+    }
+
+    clampJointAngle(joint, angle) {
+        if (joint.limit) {
+            const range = joint.limit.upper - joint.limit.lower;
+            if (range > 0) {
+                return Math.max(joint.limit.lower, Math.min(joint.limit.upper, angle));
+            }
+        }
+
+        return angle;
+    }
+
+    resetRestPose() {
+        this.chain.forEach(chainItem => {
+            const joint = chainItem.joint;
+            this.restAngles.set(joint, joint.angle);
+            this.previousAngles.set(joint, joint.angle);
+        });
+    }
+
+    getChainReach() {
+        if (this.chain.length === 0) {
+            return 0;
+        }
+
+        const points = [];
+        for (let i = 0; i < this.chain.length; i++) {
+            points.push(this.chain[i].joint.getWorldPosition(new Vector3()));
+        }
+        points.push(this.getEffectorEndPoint());
+
+        let reach = 0;
+        for (let i = 1; i < points.length; i++) {
+            reach += points[i - 1].distanceTo(points[i]);
+        }
+
+        return reach;
     }
     
     getEffectorEndPoint() {
@@ -192,25 +233,18 @@ class SimpleIKSolver {
                 // Calculate target angle
                 let targetAngle = joint.angle + deltaAngle;
 
-                // Apply joint limits
-                if (joint.limit) {
-                    const range = joint.limit.upper - joint.limit.lower;
-                    if (range > 0) {
-                        targetAngle = Math.max(joint.limit.lower, Math.min(joint.limit.upper, targetAngle));
-                    }
-                }
+                targetAngle = this.clampJointAngle(joint, targetAngle);
 
                 // Smooth interpolation from previous angle to target angle
                 const previousAngle = this.previousAngles.get(joint) || joint.angle;
                 let newAngle = previousAngle + (targetAngle - previousAngle) * this.smoothingFactor;
 
-                // Apply joint limits again after smoothing
-                if (joint.limit) {
-                    const range = joint.limit.upper - joint.limit.lower;
-                    if (range > 0) {
-                        newAngle = Math.max(joint.limit.lower, Math.min(joint.limit.upper, newAngle));
-                    }
+                const restAngle = this.restAngles.get(joint);
+                if (restAngle !== undefined) {
+                    newAngle += (restAngle - newAngle) * this.restPoseWeight;
                 }
+
+                newAngle = this.clampJointAngle(joint, newAngle);
 
                 // Only apply if the change is significant
                 const actualDelta = Math.abs(newAngle - joint.angle);
@@ -279,13 +313,7 @@ class SimpleIKSolver {
                 const correctionAngle = correctionDirection * 0.02 * this.orientationWeight;
                 let newAngle = joint.angle + correctionAngle;
 
-                // Apply joint limits
-                if (joint.limit) {
-                    const range = joint.limit.upper - joint.limit.lower;
-                    if (range > 0) {
-                        newAngle = Math.max(joint.limit.lower, Math.min(joint.limit.upper, newAngle));
-                    }
-                }
+                newAngle = this.clampJointAngle(joint, newAngle);
 
                 joint.setJointValue(newAngle);
                 this.previousAngles.set(joint, newAngle);

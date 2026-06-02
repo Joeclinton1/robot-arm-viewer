@@ -120,7 +120,7 @@ export default class URDFViewer extends HTMLElement {
     Object.assign(controls, {
       rotateSpeed: 2.0, zoomSpeed: 5, panSpeed: 2, enableZoom: true, enableDamping: false, maxDistance: 50, minDistance: 0.25,
     });
-    controls.addEventListener('change', () => this.recenter());
+    controls.addEventListener('change', () => this.redraw());
 
     this.scene = scene;
     this.world = world;
@@ -189,7 +189,10 @@ export default class URDFViewer extends HTMLElement {
   updateSize() {
     const r = this.renderer, w = this.clientWidth, h = this.clientHeight;
     const { width, height } = r.getSize(new THREE.Vector2());
-    if (width !== w || height !== h) this.recenter();
+    if (width !== w || height !== h) {
+      if (!this.noAutoRecenter) this.recenter();
+      else this.redraw();
+    }
 
     r.setPixelRatio(window.devicePixelRatio);
     r.setSize(w, h, false);
@@ -306,7 +309,8 @@ export default class URDFViewer extends HTMLElement {
       this._updateCollisionVisibility();
       this.dispatchEvent(ev('urdf-processed'));
       this.dispatchEvent(ev('geometry-loaded'));
-      this.recenter();
+      if (!this.noAutoRecenter) this.recenter();
+      else this.redraw();
     };
 
     const loader = new URDFLoader(manager);
@@ -361,6 +365,41 @@ export default class URDFViewer extends HTMLElement {
     });
   }
 
+  _jointSortIndex(joint) {
+    const name = joint.name || '';
+    if (name.includes('base_link')) return 0;
+    const match = name.match(/(?:^|_to_)link(\d+)/);
+    return match ? parseFloat(match[1]) : Number.POSITIVE_INFINITY;
+  }
+
+  _firstMovableJoint() {
+    if (!this.robot?.joints) return null;
+    return Object
+      .values(this.robot.joints)
+      .filter(joint => joint.isURDFJoint && joint.jointType !== 'fixed')
+      .sort((a, b) => {
+        const delta = this._jointSortIndex(a) - this._jointSortIndex(b);
+        return delta || a.name.localeCompare(b.name);
+      })[0] || null;
+  }
+
+  _isHumanoidArm() {
+    const firstJoint = this._firstMovableJoint();
+    if (!firstJoint?.axis) return false;
+
+    const axisWorld = firstJoint.axis.clone().transformDirection(firstJoint.matrixWorld).normalize();
+    return Math.abs(axisWorld.y) < 0.5;
+  }
+
+  _firstJointHeight() {
+    const firstJoint = this._firstMovableJoint();
+    if (!firstJoint) return null;
+
+    const pos = new THREE.Vector3();
+    firstJoint.getWorldPosition(pos);
+    return pos.y;
+  }
+
   // env and camera
   _updateEnvironment() {
     if (!this.robot) return;
@@ -370,9 +409,14 @@ export default class URDFViewer extends HTMLElement {
     this.robot.traverse(c => { if (c.isURDFVisual) bbox.expandByObject(c); });
 
     const center = bbox.getCenter(new THREE.Vector3());
-    this.controls.target.y = center.y;
-    this.plane.position.y = bbox.min.y - 1e-3;
-    if (this.gridHelper) this.gridHelper.position.y = bbox.min.y - 0.999e-3;
+    const preserveVerticalHeight = this._isHumanoidArm();
+    const targetY = preserveVerticalHeight ? (this._firstJointHeight() ?? center.y) : center.y;
+
+    this.controls.target.y = targetY;
+    if (!preserveVerticalHeight) {
+      this.plane.position.y = bbox.min.y - 1e-3;
+      if (this.gridHelper) this.gridHelper.position.y = bbox.min.y - 0.999e-3;
+    }
 
     const dl = this.directionalLight;
     dl.castShadow = this.displayShadow;
@@ -382,8 +426,9 @@ export default class URDFViewer extends HTMLElement {
       const cam = dl.shadow.camera;
       cam.left = cam.bottom = -r; cam.right = cam.top = r;
       const offset = dl.position.clone().sub(dl.target.position);
-      dl.target.position.copy(center);
-      dl.position.copy(center).add(offset);
+      const lightTarget = new THREE.Vector3(center.x, targetY, center.z);
+      dl.target.position.copy(lightTarget);
+      dl.position.copy(lightTarget).add(offset);
       cam.updateProjectionMatrix();
     }
   }
