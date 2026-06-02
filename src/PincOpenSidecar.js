@@ -243,8 +243,17 @@ export default class PincOpenSidecar {
                 jointName: this.driverJointName,
                 limits: this.angleLimits,
                 hasRobotJoint: !!realDriverJoint,
+                partCount: this.parts.length,
+                anchoredToReplacedVisual: !!replacedVisual,
             },
         }));
+        console.info('PincOpen sidecar loaded', {
+            manifestUrl: this.manifestUrl,
+            driverJoint: this.driverJointName,
+            attachLink: manifest.attach_link || 'gripper',
+            partCount: this.parts.length,
+            anchoredToReplacedVisual: !!replacedVisual,
+        });
         this.viewer.redraw();
         return true;
     }
@@ -281,7 +290,6 @@ export default class PincOpenSidecar {
         anchor.name = 'pincopen_sidecar_anchor';
         anchor.position.copy(visual.position);
         anchor.quaternion.copy(visual.quaternion);
-        anchor.scale.copy(visual.scale);
         visual.parent.add(anchor);
         this.anchor = anchor;
         return anchor;
