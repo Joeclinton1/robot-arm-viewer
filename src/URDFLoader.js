@@ -569,6 +569,8 @@ class URDFLoader {
 
                         const filename = n.children[0].getAttribute('filename');
                         const filePath = resolvePath(filename);
+                        group.urdfMeshFilename = filename;
+                        group.urdfMeshPath = filePath;
 
                         // file path is null if a package directory is not provided.
                         if (filePath !== null) {

@@ -60,6 +60,27 @@ function sampleMatrices(samples) {
         .sort((a, b) => a.angle - b.angle);
 }
 
+function keywordMatch(value, keywords) {
+    const text = String(value || '').toLowerCase();
+    return keywords.some(keyword => keyword && text.includes(String(keyword).toLowerCase()));
+}
+
+function normalizedReplaceRules(manifest) {
+    if (manifest.replace) {
+        return {
+            linkKeywords: manifest.replace.link_keywords || [],
+            visualKeywords: manifest.replace.visual_keywords || [],
+            meshKeywords: manifest.replace.mesh_keywords || [],
+        };
+    }
+
+    return {
+        linkKeywords: manifest.hide_robot_links || [],
+        visualKeywords: [],
+        meshKeywords: ['pincopen'],
+    };
+}
+
 function applyMatrix(object, matrix) {
     matrix.decompose(_pos, _quat, _scale);
     object.position.copy(_pos);
@@ -158,7 +179,7 @@ export default class PincOpenSidecar {
         this.group = new THREE.Group();
         this.group.name = 'pincopen_sidecar';
 
-        this._hideCollapsedLinks(robot, manifest.hide_robot_links || []);
+        this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
 
         const manager = new THREE.LoadingManager();
         const sidecarBase = THREE.LoaderUtils.extractUrlBase(manifestUrl);
@@ -200,11 +221,29 @@ export default class PincOpenSidecar {
         return true;
     }
 
-    _hideCollapsedLinks(robot, linkNames) {
-        for (const name of linkNames) {
-            const link = robot.links?.[name];
-            if (link) link.visible = false;
+    _hideReplacedGeometry(robot, rules) {
+        robot.traverse(node => {
+            if (!node.isURDFVisual && !node.isURDFCollider) return;
+
+            const link = this._nearestLink(node);
+            const matchesLink = keywordMatch(link?.urdfName || link?.name, rules.linkKeywords);
+            const matchesVisual = keywordMatch(node.urdfName || node.name, rules.visualKeywords);
+            const matchesMesh = keywordMatch(node.urdfMeshFilename, rules.meshKeywords) ||
+                keywordMatch(node.urdfMeshPath, rules.meshKeywords);
+
+            if (matchesLink || matchesVisual || matchesMesh) {
+                node.visible = false;
+            }
+        });
+    }
+
+    _nearestLink(node) {
+        let current = node.parent;
+        while (current) {
+            if (current.isURDFLink) return current;
+            current = current.parent;
         }
+        return null;
     }
 
     updateForJoint(jointName, angle) {
