@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint } from './URDFClasses.js';
 
 /*
@@ -27,6 +29,40 @@ ROS URDf
 
 const tempQuaternion = new THREE.Quaternion();
 const tempEuler = new THREE.Euler();
+
+function loadObjWithOptionalMtl(path, manager, done) {
+
+    const basePath = THREE.LoaderUtils.extractUrlBase(path);
+    const objFile = path.substring(basePath.length);
+    const mtlFile = objFile.replace(/\.obj$/i, '.mtl');
+
+    function loadObj(materials = null) {
+
+        const loader = new OBJLoader(manager);
+        loader.setPath(basePath);
+        if (materials) loader.setMaterials(materials);
+        loader.load(
+            objFile,
+            obj => done(obj),
+            null,
+            err => done(null, err),
+        );
+
+    }
+
+    const mtlLoader = new MTLLoader(manager);
+    mtlLoader.setPath(basePath);
+    mtlLoader.load(
+        mtlFile,
+        materials => {
+            materials.preload();
+            loadObj(materials);
+        },
+        null,
+        () => loadObj(),
+    );
+
+}
 
 // take a vector "x y z" and process it into
 // an array [x, y, z]
@@ -645,6 +681,10 @@ class URDFLoader {
 
             const loader = new ColladaLoader(manager);
             loader.load(path, dae => done(dae.scene));
+
+        } else if (/\.obj$/i.test(path)) {
+
+            loadObjWithOptionalMtl(path, manager, done);
 
         } else {
 

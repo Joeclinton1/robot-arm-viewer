@@ -5,6 +5,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import URDFManipulator from './urdf-manipulator-element.js';
 import { OBJExporter } from './OBJExporter.js';
 import { DAEExporter } from './DAEExporter.js';
@@ -33,6 +34,36 @@ const interactionInstruction = document.getElementById('interaction-instruction'
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 1 / DEG2RAD;
 let sliders = {};
+
+function loadObjWithOptionalMtl(path, manager, done) {
+    const basePath = THREE.LoaderUtils.extractUrlBase(path);
+    const objFile = path.substring(basePath.length);
+    const mtlFile = objFile.replace(/\.obj$/i, '.mtl');
+
+    const loadObj = (materials = null) => {
+        const loader = new OBJLoader(manager);
+        loader.setPath(basePath);
+        if (materials) loader.setMaterials(materials);
+        loader.load(
+            objFile,
+            result => done(result),
+            null,
+            err => done(null, err),
+        );
+    };
+
+    const mtlLoader = new MTLLoader(manager);
+    mtlLoader.setPath(basePath);
+    mtlLoader.load(
+        mtlFile,
+        materials => {
+            materials.preload();
+            loadObj(materials);
+        },
+        null,
+        () => loadObj(),
+    );
+}
 
 // Create axis helper
 let axesHelper = null;
@@ -349,12 +380,7 @@ document.addEventListener('WebComponentsReady', () => {
                 );
                 break;
             case 'obj':
-                new OBJLoader(manager).load(
-                    path,
-                    result => done(result),
-                    null,
-                    err => done(null, err),
-                );
+                loadObjWithOptionalMtl(path, manager, done);
                 break;
             case 'dae':
                 new ColladaLoader(manager).load(
