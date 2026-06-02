@@ -299,8 +299,8 @@ export default class PincOpenSidecar {
         const base = THREE.LoaderUtils.extractUrlBase(urdf);
         const parent = parentDirectory(base);
         const candidates = uniqueValues([
-            `${base}pincopen/manifest.json`,
             `${parent}pincopen/manifest.json`,
+            `${base}pincopen/manifest.json`,
         ]);
 
         for (const candidate of candidates) {
