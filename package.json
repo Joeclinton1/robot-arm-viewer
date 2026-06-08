@@ -1,0 +1,20 @@
+{
+  "name": "robot-arm-viewer",
+  "version": "0.1.0",
+  "description": "Browser URDF robot arm viewer with a small teleoperation control server.",
+  "type": "module",
+  "bin": {
+    "robot-arm-viewer": "./bin/robot-arm-viewer.js"
+  },
+  "scripts": {
+    "start": "node ./bin/robot-arm-viewer.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "urdf",
+    "index.html",
+    "styles.css",
+    "README.md"
+  ]
+}

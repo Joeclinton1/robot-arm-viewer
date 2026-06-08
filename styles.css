@@ -14,6 +14,13 @@ body {
     background-color: #263238; /* Dark gray to match renderer background */
 }
 
+body.remote-mode #urdf-options,
+body.remote-mode #robot-name,
+body.remote-mode #robot-specs,
+body.remote-mode #interaction-instruction {
+    display: none;
+}
+
 select {
     font-family: "Roboto", helvetica, arial, sans-serif;
     background: rgba(255,255,255,0.25);
@@ -342,4 +349,52 @@ input:focus {
 
 #robot-specs div {
     margin: 2px 0;
+}
+
+#leader-control {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 120;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 8px 12px;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 4px;
+    background: rgba(12,18,20,0.42);
+    color: rgba(255,255,255,0.82);
+    font-family: "Roboto", helvetica, arial, sans-serif;
+    font-size: 13px;
+    font-weight: 300;
+    cursor: pointer;
+    opacity: 0.72;
+}
+
+#leader-control.hidden {
+    display: none;
+}
+
+#leader-control:hover {
+    opacity: 1;
+    background: rgba(12,18,20,0.62);
+}
+
+#leader-control span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #8a8f92;
+    box-shadow: 0 0 8px rgba(138,143,146,0.45);
+}
+
+#leader-control.connected span {
+    background: #4fd08b;
+    box-shadow: 0 0 10px rgba(79,208,139,0.7);
+}
+
+#leader-control.paused span {
+    background: #f1c84b;
+    box-shadow: 0 0 10px rgba(241,200,75,0.7);
 }

@@ -70,6 +70,8 @@ export default class URDFViewer extends HTMLElement {
     this.loadMeshFunc = null;
     this.urlModifierFunc = null;
     this.envMap = null;
+    this.skipPincOpenSidecar = false;
+    this.fastPincOpenSidecar = false;
     this.pincOpenSidecar = new PincOpenSidecar(this);
 
     // scene
@@ -315,6 +317,7 @@ export default class URDFViewer extends HTMLElement {
       this.dispatchEvent(ev('geometry-loaded'));
       if (!this.noAutoRecenter) this.recenter();
       else this.redraw();
+      if (this.skipPincOpenSidecar) return;
       this.pincOpenSidecar.loadForCurrentUrdf().then(loaded => {
         if (!loaded) return;
         this._upgradeMaterials(this.pincOpenSidecar.group);
@@ -327,7 +330,7 @@ export default class URDFViewer extends HTMLElement {
     loader.packages = this._parsePackages(pkg);
     loader.loadMeshCb = this.loadMeshFunc;
     loader.fetchOptions = { mode: 'cors', credentials: 'same-origin' };
-    loader.parseCollision = true;
+    loader.parseCollision = this.showCollision;
 
     let robot = null;
     loader.load(urdf, model => (robot = model));

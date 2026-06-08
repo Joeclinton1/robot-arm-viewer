@@ -8,34 +8,61 @@ const _scale = new THREE.Vector3();
 const _m0 = new THREE.Matrix4();
 const _m1 = new THREE.Matrix4();
 
-function loadObjWithOptionalMtl(path, manager) {
+function loadMtl(path, manager) {
     return new Promise(resolve => {
         const basePath = THREE.LoaderUtils.extractUrlBase(path);
-        const objFile = path.substring(basePath.length);
-        const mtlFile = objFile.replace(/\.obj$/i, '.mtl');
-
-        const loadObj = materials => {
-            const loader = new OBJLoader(manager);
-            loader.setPath(basePath);
-            if (materials) loader.setMaterials(materials);
-            loader.load(
-                objFile,
-                object => resolve(object),
-                null,
-                () => resolve(null),
-            );
-        };
-
+        const mtlFile = path.substring(basePath.length);
         const mtlLoader = new MTLLoader(manager);
         mtlLoader.setPath(basePath);
         mtlLoader.load(
             mtlFile,
             materials => {
                 materials.preload();
-                loadObj(materials);
+                resolve(materials);
             },
             null,
-            () => loadObj(null),
+            () => resolve(null),
+        );
+    });
+}
+
+function loadObjWithMaterials(path, manager, materials = null) {
+    return new Promise(resolve => {
+        const basePath = THREE.LoaderUtils.extractUrlBase(path);
+        const objFile = path.substring(basePath.length);
+        const loader = new OBJLoader(manager);
+        loader.setPath(basePath);
+        if (materials) loader.setMaterials(materials);
+        loader.load(
+            objFile,
+            object => resolve(object),
+            null,
+            () => resolve(null),
+        );
+    });
+}
+
+async function loadObjWithOptionalMtl(path, manager, useMaterials = true) {
+    if (!useMaterials) return loadObjWithMaterials(path, manager);
+
+    const basePath = THREE.LoaderUtils.extractUrlBase(path);
+    const objFile = path.substring(basePath.length);
+    const materials = await loadMtl(basePath + objFile.replace(/\.obj$/i, '.mtl'), manager);
+    return loadObjWithMaterials(path, manager, materials);
+}
+
+function loadObjWithSharedMtl(path, manager, materials) {
+    return new Promise(resolve => {
+        const basePath = THREE.LoaderUtils.extractUrlBase(path);
+        const objFile = path.substring(basePath.length);
+        const loader = new OBJLoader(manager);
+        loader.setPath(basePath);
+        if (materials) loader.setMaterials(materials);
+        loader.load(
+            objFile,
+            object => resolve(object),
+            null,
+            () => resolve(null),
         );
     });
 }
@@ -135,6 +162,12 @@ function interpolateSample(object, samples, angle) {
     }
 }
 
+function wrapAngle(angle, lower, upper) {
+    const span = upper - lower;
+    if (!Number.isFinite(span) || span <= 0) return angle;
+    return ((((angle - lower) % span) + span) % span) + lower;
+}
+
 export default class PincOpenSidecar {
     constructor(viewer) {
         this.viewer = viewer;
@@ -142,6 +175,7 @@ export default class PincOpenSidecar {
         this.driverJoint = null;
         this.driverJointName = null;
         this.angle = 0;
+        this.angleOffset = 0;
         this.angleLimits = { lower: 0, upper: Math.PI * 2 };
         this.parts = [];
         this.manifestUrl = null;
@@ -155,6 +189,7 @@ export default class PincOpenSidecar {
         this.driverJoint = null;
         this.driverJointName = null;
         this.angle = 0;
+        this.angleOffset = 0;
         this.angleLimits = { lower: 0, upper: Math.PI * 2 };
         this.parts = [];
         this.manifestUrl = null;
@@ -196,30 +231,35 @@ export default class PincOpenSidecar {
             lower: manifest.angle_min ?? this.angleLimits.lower,
             upper: manifest.angle_max ?? this.angleLimits.upper,
         };
+        this.angleOffset =
+            Number(manifest.angle_offset_radians || 0) +
+            Number(manifest.angle_offset_degrees || 0) * Math.PI / 180;
         this.group = new THREE.Group();
         this.group.name = 'pincopen_sidecar';
         this.group.isURDFVisual = true;
 
-        const replacedVisual = this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
-
         const manager = new THREE.LoadingManager();
         if (this.viewer.urlModifierFunc) manager.setURLModifier(this.viewer.urlModifierFunc);
         const sidecarBase = THREE.LoaderUtils.extractUrlBase(manifestUrl);
-        for (const part of manifest.parts || []) {
-            const object = await loadObjWithOptionalMtl(sidecarBase + part.mesh, manager);
-            if (!object) continue;
+        const useSharedMaterials = this.viewer.fastPincOpenSidecar;
+        const materialLibraryUrl = sidecarBase + (manifest.material_library || 'materials.combined.mtl');
+        const sharedMaterials = useSharedMaterials ? await loadMtl(materialLibraryUrl, manager) : null;
+        const loadedParts = await this._loadParts(
+            manifest.parts || [],
+            sidecarBase,
+            manager,
+            useSharedMaterials,
+            sharedMaterials,
+        );
 
-            object.name = `pincopen_${part.name}`;
-            object.traverse(child => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                }
-            });
-
-            const samples = sampleMatrices(part.samples);
-            this.group.add(object);
-            this.parts.push({ object, samples });
+        for (const loaded of loadedParts) {
+            if (!loaded) continue;
+            this.group.add(loaded.object);
+            this.parts.push(loaded);
+        }
+        if (this.parts.length === 0) {
+            this.dispose();
+            return false;
         }
 
         if (this.viewer.urdf !== urdf || this.viewer.robot !== robot) {
@@ -227,6 +267,7 @@ export default class PincOpenSidecar {
             return false;
         }
 
+        const replacedVisual = this._hideReplacedGeometry(robot, normalizedReplaceRules(manifest));
         const attachLink = robot.links?.[manifest.attach_link || 'gripper'] || robot;
         const attachParent = this._createAnchorFromReplacedVisual(replacedVisual) || attachLink;
         if (!this.driverJoint) {
@@ -256,6 +297,25 @@ export default class PincOpenSidecar {
         });
         this.viewer.redraw();
         return true;
+    }
+
+    async _loadParts(parts, sidecarBase, manager, useSharedMaterials, sharedMaterials) {
+        return Promise.all(parts.map(async part => {
+            const object = useSharedMaterials
+                ? await loadObjWithSharedMtl(sidecarBase + part.mesh, manager, sharedMaterials)
+                : await loadObjWithOptionalMtl(sidecarBase + part.mesh, manager, true);
+            if (!object) return null;
+
+            object.name = `pincopen_${part.name}`;
+            object.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            return { object, samples: sampleMatrices(part.samples) };
+        }));
     }
 
     _createSyntheticJoint(name, parent) {
@@ -356,8 +416,9 @@ export default class PincOpenSidecar {
         const value = Number(angle);
         this.angle = Number.isFinite(value) ? value : 0;
         if (this.syntheticJoint) this.syntheticJoint.jointValue[0] = this.angle;
+        const sampleAngle = wrapAngle(this.angle + this.angleOffset, this.angleLimits.lower, this.angleLimits.upper);
         for (const part of this.parts) {
-            interpolateSample(part.object, part.samples, this.angle);
+            interpolateSample(part.object, part.samples, sampleAngle);
         }
         this.viewer.redraw();
     }

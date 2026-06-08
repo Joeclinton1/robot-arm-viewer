@@ -7,6 +7,7 @@
   "angle_unit": "radian",
   "angle_min": 0.0,
   "angle_max": 6.283185307179586,
+  "angle_offset_degrees": 240,
   "mesh_unit": "millimeter",
   "replace": {
     "link_keywords": [

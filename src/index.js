@@ -31,8 +31,18 @@ const exportObjButton = document.getElementById('export-obj');
 const showAxesToggle = document.getElementById('show-axes');
 const showBananaToggle = document.getElementById('show-banana');
 const interactionInstruction = document.getElementById('interaction-instruction');
+const leaderControlButton = document.getElementById('leader-control');
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 1 / DEG2RAD;
+const GEM_JOINT_MAP = {
+    joint_1: 'base_link_to_link1',
+    joint_2: 'link1_to_link2',
+    joint_3: 'link2_to_link3',
+    joint_4: 'link3_to_link4',
+    joint_5: 'link4_to_link5',
+    joint_6: 'link5_to_link6',
+    joint_7: 'link6_to_link7',
+};
 let sliders = {};
 let gripperControl = null;
 let gripperTarget = null;
@@ -269,6 +279,10 @@ showBananaToggle.addEventListener('click', () => {
 upSelect.addEventListener('change', () => viewer.up = upSelect.value);
 
 controlsToggle.addEventListener('click', () => controlsel.classList.toggle('hidden'));
+leaderControlButton?.addEventListener('click', () => {
+    if (!remoteMode) return;
+    setLeaderControlEnabled(!leaderControlEnabled);
+});
 
 // Export DAE functionality
 exportObjButton.addEventListener('click', () => {
@@ -298,6 +312,7 @@ viewer.addEventListener('urdf-change', () => {
         .forEach(sl => sl.remove());
     sliders = {};
     setGripperControl(null);
+    removeRemoteClone();
 
 });
 
@@ -334,6 +349,7 @@ viewer.addEventListener('joint-mouseout', e => {
 
 let originalNoAutoRecenter;
 viewer.addEventListener('manipulate-start', e => {
+    if (remoteMode) setLeaderControlEnabled(false);
 
     const j = document.querySelector(`li[joint-name="${ e.detail }"]`);
     if (j) {
@@ -498,6 +514,8 @@ viewer.addEventListener('urdf-processed', () => {
         sliders[gripperControl.name] = li;
     }
 
+    if (remoteMode) applyRemoteLayout(remoteMode);
+
 });
 
 viewer.addEventListener('pincopen-sidecar-loaded', e => {
@@ -505,6 +523,7 @@ viewer.addEventListener('pincopen-sidecar-loaded', e => {
     const jointName = e.detail?.jointName || sidecar?.driverJointName || 'autorig_cam_to_motor_frame';
     if (!sidecar) return;
     setGripperControl(createPincOpenGripperControl(sidecar));
+    if (remoteMode) applyRemoteLayout(remoteMode);
     if (e.detail?.hasRobotJoint || sliders[jointName]) return;
 
     const li = document.createElement('li');
@@ -1000,6 +1019,232 @@ const updateLoop = () => {
 // Store robot manifest data
 let robotManifestData = [];
 let currentRobotInfo = null;
+let remoteMode = null;
+let remoteArms = new Map();
+let remoteClone = null;
+let remoteSocketConnected = false;
+let remoteLeaderAvailable = false;
+let leaderControlEnabled = true;
+const _remotePartPos = new THREE.Vector3();
+const _remotePartQuat = new THREE.Quaternion();
+const _remotePartScale = new THREE.Vector3();
+
+const removeRemoteClone = () => {
+    if (remoteClone?.parent) remoteClone.parent.remove(remoteClone);
+    remoteClone = null;
+};
+
+const setLeaderControlEnabled = enabled => {
+    leaderControlEnabled = enabled;
+    document.body.classList.toggle('remote-mode', Boolean(remoteMode && leaderControlEnabled));
+    updateLeaderControlButton();
+};
+
+const updateLeaderControlButton = () => {
+    if (!leaderControlButton) return;
+    const visible = remoteSocketConnected && remoteLeaderAvailable;
+    leaderControlButton.classList.toggle('hidden', !visible);
+    leaderControlButton.classList.toggle('connected', remoteSocketConnected && leaderControlEnabled);
+    leaderControlButton.classList.toggle('paused', remoteSocketConnected && !leaderControlEnabled);
+    leaderControlButton.title = visible
+        ? (leaderControlEnabled ? 'Leader updates are controlling the viewer' : 'Leader updates are paused')
+        : 'No leader teleoperation server is connected';
+};
+
+const findManifestRobot = name => robotManifestData.find(robot => robot.name.toLowerCase() === name.toLowerCase());
+
+const loadRobotByName = name => {
+    const robot = findManifestRobot(name);
+    if (!robot) return false;
+    const option = document.querySelector(`#urdf-options li[data-robot-name="${ robot.name }"]`);
+    if (option) {
+        option.dispatchEvent(new Event('click'));
+        return true;
+    }
+    viewer.urdf = robot.path;
+    setColor(robot.color || '#263238');
+    updateRobotInfo(robot.name);
+    return true;
+};
+
+const applyRemoteLayout = config => {
+    if (!viewer.robot) return;
+    removeRemoteClone();
+    remoteArms = new Map();
+    const spacing = Number(config.spacing_m ?? 0.2);
+
+    if (config.mode === 'dual') {
+        viewer.robot.position.x = -spacing / 2;
+        viewer.robot.scale.x = 1;
+        remoteClone = viewer.robot.clone(true);
+        remoteClone.name = 'right_gem';
+        remoteClone.position.x = spacing / 2;
+        remoteClone.scale.x = -1;
+        viewer.world.add(remoteClone);
+        remoteArms.set('left', viewer.robot);
+        remoteArms.set('right', remoteClone);
+    } else {
+        viewer.robot.position.x = 0;
+        viewer.robot.scale.x = 1;
+        remoteArms.set('gem', viewer.robot);
+        remoteArms.set('left', viewer.robot);
+        remoteArms.set('right', viewer.robot);
+    }
+
+    viewer.noAutoRecenter = true;
+    animToggle.classList.remove('checked');
+    viewer.recenter();
+    viewer.redraw();
+};
+
+const configureRemoteViewer = config => {
+    remoteLeaderAvailable = config.leader_control === true;
+    updateLeaderControlButton();
+    if (!remoteLeaderAvailable) return;
+
+    remoteMode = config;
+    document.body.classList.add('remote-mode');
+    setLeaderControlEnabled(true);
+    viewer.skipPincOpenSidecar = config.load_sidecar !== true;
+    viewer.fastPincOpenSidecar = config.fast_sidecar === true;
+    viewer.showCollision = false;
+    const targetRobot = config.robot || 'GEM';
+    if (currentRobotInfo?.name !== targetRobot) {
+        loadRobotByName(targetRobot);
+    }
+    if (viewer.robot) applyRemoteLayout(config);
+};
+
+const splitRemoteActionKey = key => {
+    const raw = key.replace(/\.pos$/i, '');
+    if (raw.startsWith('left_')) return ['left', raw.slice(5)];
+    if (raw.startsWith('right_')) return ['right', raw.slice(6)];
+    return ['gem', raw];
+};
+
+const applyRemoteSidecarSample = (object, matrix) => {
+    matrix.decompose(_remotePartPos, _remotePartQuat, _remotePartScale);
+    object.position.copy(_remotePartPos);
+    object.quaternion.copy(_remotePartQuat);
+    object.scale.copy(_remotePartScale).multiplyScalar(0.001);
+};
+
+const setRemoteSidecarPartAngle = (object, samples, angle) => {
+    if (!object || !samples?.length) return;
+    if (angle <= samples[0].angle) {
+        applyRemoteSidecarSample(object, samples[0].matrix);
+        return;
+    }
+    const last = samples[samples.length - 1];
+    if (angle >= last.angle) {
+        applyRemoteSidecarSample(object, last.matrix);
+        return;
+    }
+    for (let i = 0; i < samples.length - 1; i++) {
+        const a = samples[i];
+        const b = samples[i + 1];
+        if (angle < a.angle || angle > b.angle) continue;
+
+        const t = (angle - a.angle) / (b.angle - a.angle || 1);
+        const posA = new THREE.Vector3();
+        const quatA = new THREE.Quaternion();
+        const scaleA = new THREE.Vector3();
+        const posB = new THREE.Vector3();
+        const quatB = new THREE.Quaternion();
+        const scaleB = new THREE.Vector3();
+        a.matrix.decompose(posA, quatA, scaleA);
+        b.matrix.decompose(posB, quatB, scaleB);
+        object.position.copy(posA.lerp(posB, t));
+        object.quaternion.copy(quatA.slerp(quatB, t));
+        object.scale.copy(scaleA.lerp(scaleB, t)).multiplyScalar(0.001);
+        return;
+    }
+};
+
+const setRemotePincOpenGripper = (robot, numeric) => {
+    if (!gripperControl) return false;
+    const normalized = Math.max(0, Math.min(100, numeric)) / 100;
+    const angle = (1 - normalized) * 240 * DEG2RAD;
+    if (robot === viewer.robot) {
+        gripperControl.setValue(angle);
+        sliders[gripperControl.name]?.update();
+        return true;
+    }
+
+    const parts = viewer.pincOpenSidecar?.parts || [];
+    for (const part of parts) {
+        const clonedPart = robot.getObjectByName(part.object.name);
+        setRemoteSidecarPartAngle(clonedPart, part.samples, angle);
+    }
+    return parts.length > 0;
+};
+
+const setRemoteActionValue = (robot, joint, value) => {
+    if (!robot) return;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return;
+
+    if (joint === 'gripper') {
+        if (robot.joints?.gripper && robot.setJointValue('gripper', numeric * DEG2RAD)) {
+            if (robot === viewer.robot) sliders.gripper?.update();
+            return;
+        }
+        setRemotePincOpenGripper(robot, numeric);
+        return;
+    }
+
+    const urdfJoint = GEM_JOINT_MAP[joint] || joint;
+    const radians = numeric * DEG2RAD;
+    if (robot.setJointValue(urdfJoint, radians) && robot === viewer.robot) {
+        sliders[urdfJoint]?.update();
+    }
+};
+
+const applyRemoteAction = message => {
+    if (!leaderControlEnabled) return;
+    const actions = message.actions || message.action || {};
+    for (const [key, value] of Object.entries(actions)) {
+        const [arm, joint] = splitRemoteActionKey(key);
+        setRemoteActionValue(remoteArms.get(arm) || remoteArms.get('gem'), joint, value);
+    }
+    viewer.redraw();
+};
+
+const connectRemoteControl = () => {
+    if (!window.location.host || !['http:', 'https:'].includes(window.location.protocol)) {
+        remoteSocketConnected = false;
+        remoteLeaderAvailable = false;
+        updateLeaderControlButton();
+        return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let socket = null;
+    try {
+        socket = new WebSocket(`${ protocol }//${ window.location.host }/control`);
+    } catch {
+        remoteSocketConnected = false;
+        remoteLeaderAvailable = false;
+        updateLeaderControlButton();
+        return;
+    }
+    socket.addEventListener('open', () => {
+        remoteSocketConnected = true;
+        updateLeaderControlButton();
+    });
+    socket.addEventListener('message', event => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'configure') configureRemoteViewer(message);
+        if (message.type === 'action') applyRemoteAction(message);
+    });
+    socket.addEventListener('close', () => {
+        remoteSocketConnected = false;
+        remoteLeaderAvailable = false;
+        setLeaderControlEnabled(false);
+        updateLeaderControlButton();
+        setTimeout(connectRemoteControl, 1000);
+    });
+};
 
 const escapeHtml = value => String(value)
     .replace(/&/g, '&amp;')
@@ -1085,6 +1330,7 @@ const loadRobotManifest = async () => {
                 firstRobot.dispatchEvent(new Event('click'));
             }
         }
+        if (remoteMode) configureRemoteViewer(remoteMode);
     } catch (error) {
         console.error('Failed to load robot manifest:', error);
     }
@@ -1127,6 +1373,7 @@ const updateList = () => {
 
 // Load robots from manifest on startup
 loadRobotManifest();
+connectRemoteControl();
 
 document.addEventListener('WebComponentsReady', () => {
 
