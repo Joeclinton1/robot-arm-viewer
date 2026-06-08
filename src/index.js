@@ -1166,9 +1166,9 @@ const setRemotePincOpenGripper = (robot, numeric) => {
     const normalized = Math.max(0, Math.min(100, numeric)) / 100;
     const angle = (1 - normalized) * 240 * DEG2RAD;
     if (robot === viewer.robot) {
-        gripperControl.setValue(angle);
+        viewer.pincOpenSidecar?.setSampleAngle(angle, true);
         sliders[gripperControl.name]?.update();
-        return true;
+        return Boolean(viewer.pincOpenSidecar);
     }
 
     const parts = viewer.pincOpenSidecar?.parts || [];

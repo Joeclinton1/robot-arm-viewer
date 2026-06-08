@@ -417,6 +417,15 @@ export default class PincOpenSidecar {
         this.angle = Number.isFinite(value) ? value : 0;
         if (this.syntheticJoint) this.syntheticJoint.jointValue[0] = this.angle;
         const sampleAngle = wrapAngle(this.angle + this.angleOffset, this.angleLimits.lower, this.angleLimits.upper);
+        this.setSampleAngle(sampleAngle);
+    }
+
+    setSampleAngle(angle, updateDriver = false) {
+        const sampleAngle = wrapAngle(angle, this.angleLimits.lower, this.angleLimits.upper);
+        if (updateDriver) {
+            this.angle = wrapAngle(sampleAngle - this.angleOffset, this.angleLimits.lower, this.angleLimits.upper);
+            if (this.syntheticJoint) this.syntheticJoint.jointValue[0] = this.angle;
+        }
         for (const part of this.parts) {
             interpolateSample(part.object, part.samples, sampleAngle);
         }
