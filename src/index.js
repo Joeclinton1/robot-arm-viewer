@@ -1022,6 +1022,7 @@ let currentRobotInfo = null;
 let remoteMode = null;
 let remoteArms = new Map();
 let remoteClone = null;
+let remoteSupportGroup = null;
 let remoteSocketConnected = false;
 let remoteLeaderAvailable = false;
 let leaderControlEnabled = true;
@@ -1029,9 +1030,33 @@ const _remotePartPos = new THREE.Vector3();
 const _remotePartQuat = new THREE.Quaternion();
 const _remotePartScale = new THREE.Vector3();
 
+const ELO_SUPPORT = {
+    cylinderRadius: 0.065,
+    pedestalX: 0.08,
+    pedestalZ: 0.04,
+    baseY: 0.035,
+    baseZ: 0.18,
+    baseMarginX: 0.16,
+};
+
 const removeRemoteClone = () => {
     if (remoteClone?.parent) remoteClone.parent.remove(remoteClone);
     remoteClone = null;
+};
+
+const disposeRemoteSupport = () => {
+    if (!remoteSupportGroup) return;
+    if (remoteSupportGroup.parent) remoteSupportGroup.parent.remove(remoteSupportGroup);
+    const geometries = new Set();
+    const materials = new Set();
+    remoteSupportGroup.traverse(object => {
+        if (object.geometry) geometries.add(object.geometry);
+        if (Array.isArray(object.material)) object.material.forEach(material => materials.add(material));
+        else if (object.material) materials.add(object.material);
+    });
+    geometries.forEach(geometry => geometry.dispose());
+    materials.forEach(material => material.dispose());
+    remoteSupportGroup = null;
 };
 
 const setLeaderControlEnabled = enabled => {
@@ -1067,11 +1092,81 @@ const loadRobotByName = name => {
     return true;
 };
 
+const makeRemoteSupportMesh = (geometry, material, name, position) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = name;
+    mesh.position.copy(position);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+};
+
+const addEloSupport = spacing => {
+    if (!viewer.robot || remoteSupportGroup) return;
+
+    viewer.world.updateMatrixWorld(true);
+    const firstJoint = getAllSortedMovableJoints()[0];
+    const motorPosition = new THREE.Vector3(0, 0, 0);
+    if (firstJoint) {
+        firstJoint.getWorldPosition(motorPosition);
+        viewer.world.worldToLocal(motorPosition);
+    }
+
+    const groundZ = 0;
+    const cylinderZ = Math.max(groundZ + ELO_SUPPORT.cylinderRadius, motorPosition.z);
+    const cylinderY = Number.isFinite(motorPosition.y) ? motorPosition.y : 0;
+    const pedestalHeight = Math.max(
+        ELO_SUPPORT.cylinderRadius * 2,
+        cylinderZ - groundZ + ELO_SUPPORT.cylinderRadius,
+    );
+    const cylinderMaterial = new THREE.MeshStandardMaterial({
+        color: 0xf6f6f0,
+        roughness: 0.42,
+        metalness: 0.02,
+    });
+    const mountMaterial = new THREE.MeshStandardMaterial({
+        color: 0xb8bcc0,
+        roughness: 0.24,
+        metalness: 0.72,
+    });
+
+    remoteSupportGroup = new THREE.Group();
+    remoteSupportGroup.name = 'elo_motor_support';
+
+    const cylinder = makeRemoteSupportMesh(
+        new THREE.CylinderGeometry(ELO_SUPPORT.cylinderRadius, ELO_SUPPORT.cylinderRadius, spacing, 64),
+        cylinderMaterial,
+        'elo_motor_bridge_cylinder',
+        new THREE.Vector3(0, cylinderY, cylinderZ),
+    );
+    cylinder.rotation.z = Math.PI / 2;
+    remoteSupportGroup.add(cylinder);
+
+    remoteSupportGroup.add(makeRemoteSupportMesh(
+        new THREE.BoxGeometry(ELO_SUPPORT.pedestalX, ELO_SUPPORT.pedestalZ, pedestalHeight),
+        mountMaterial,
+        'elo_motor_bridge_pedestal',
+        new THREE.Vector3(0, cylinderY, groundZ + pedestalHeight / 2),
+    ));
+
+    const baseX = Math.max(spacing + ELO_SUPPORT.baseMarginX, ELO_SUPPORT.pedestalX * 3);
+    remoteSupportGroup.add(makeRemoteSupportMesh(
+        new THREE.BoxGeometry(baseX, ELO_SUPPORT.baseZ, ELO_SUPPORT.baseY),
+        mountMaterial,
+        'elo_motor_bridge_base',
+        new THREE.Vector3(0, cylinderY, groundZ + ELO_SUPPORT.baseY / 2),
+    ));
+
+    viewer.world.add(remoteSupportGroup);
+};
+
 const applyRemoteLayout = config => {
     if (!viewer.robot) return;
     removeRemoteClone();
+    disposeRemoteSupport();
     remoteArms = new Map();
-    const spacing = Number(config.spacing_m ?? 0.2);
+    const configuredSpacing = Number(config.spacing_m);
+    const spacing = Number.isFinite(configuredSpacing) && configuredSpacing > 0 ? configuredSpacing : 0.2;
 
     if (config.mode === 'dual') {
         viewer.robot.position.x = -spacing / 2;
@@ -1094,6 +1189,9 @@ const applyRemoteLayout = config => {
     viewer.noAutoRecenter = true;
     animToggle.classList.remove('checked');
     viewer.recenter();
+    if (config.mode === 'dual' && (config.robot || 'GEM') === 'GEM') {
+        addEloSupport(spacing);
+    }
     viewer.redraw();
 };
 
