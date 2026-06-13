@@ -1167,6 +1167,7 @@ const applyRemoteLayout = config => {
     remoteArms = new Map();
     const configuredSpacing = Number(config.spacing_m);
     const spacing = Number.isFinite(configuredSpacing) && configuredSpacing > 0 ? configuredSpacing : 0.2;
+    const mirrorRightArm = config.mirror_right_arm === true;
 
     if (config.mode === 'dual') {
         viewer.robot.position.x = -spacing / 2;
@@ -1174,7 +1175,7 @@ const applyRemoteLayout = config => {
         remoteClone = viewer.robot.clone(true);
         remoteClone.name = 'right_gem';
         remoteClone.position.x = spacing / 2;
-        remoteClone.scale.x = -1;
+        remoteClone.scale.x = mirrorRightArm ? -1 : 1;
         viewer.world.add(remoteClone);
         remoteArms.set('left', viewer.robot);
         remoteArms.set('right', remoteClone);
