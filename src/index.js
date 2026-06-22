@@ -167,7 +167,59 @@ function loadObjWithOptionalMtl(path, manager, done) {
 }
 
 // Create axis helper
-let axesHelper = null;
+let axesGroup = null;
+
+const createAxisLabelSprite = (text, color) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.font = 'bold 44px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillStyle = color;
+    ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(0.12, 0.06, 1);
+    return sprite;
+};
+
+const createAxesGroup = () => {
+    const group = new THREE.Group();
+    group.name = 'world_axes_with_labels';
+    group.add(new THREE.AxesHelper(0.5));
+
+    const labels = [
+        ['X', '#ff4d4d', new THREE.Vector3(0.58, 0, 0)],
+        ['Y', '#4dff6a', new THREE.Vector3(0, 0.58, 0)],
+        ['Z', '#4d8dff', new THREE.Vector3(0, 0, 0.58)],
+    ];
+    for (const [text, color, position] of labels) {
+        const label = createAxisLabelSprite(text, color);
+        label.position.copy(position);
+        group.add(label);
+    }
+    return group;
+};
+
+const disposeAxesGroup = group => {
+    group.traverse(object => {
+        if (object.material?.map) object.material.map.dispose();
+        if (object.material) object.material.dispose();
+    });
+};
 
 // Banana for scale
 let banana = null;
@@ -231,14 +283,15 @@ showAxesToggle.addEventListener('click', () => {
     showAxesToggle.classList.toggle('checked');
     const showAxes = showAxesToggle.classList.contains('checked');
 
-    if (showAxes && !axesHelper) {
+    if (showAxes && !axesGroup) {
         // Create axes helper: Red = X, Green = Y, Blue = Z
-        axesHelper = new THREE.AxesHelper(0.5);
-        viewer.scene.add(axesHelper);
+        axesGroup = createAxesGroup();
+        viewer.scene.add(axesGroup);
         viewer.redraw();
-    } else if (!showAxes && axesHelper) {
-        viewer.scene.remove(axesHelper);
-        axesHelper = null;
+    } else if (!showAxes && axesGroup) {
+        viewer.scene.remove(axesGroup);
+        disposeAxesGroup(axesGroup);
+        axesGroup = null;
         viewer.redraw();
     }
 });
